@@ -1,5 +1,5 @@
 use clap::Parser;
-use mapgen::WorldGenerationParams;
+use mapgen::{WorldGenerationParams, generate_heightmap};
 use std::path::PathBuf;
 
 /// Генератор карт для Chronicles of Realms
@@ -9,35 +9,33 @@ struct Cli {
     /// Путь к конфигурационному файлу в формате TOML
     #[arg(short, long)]
     config: PathBuf,
+
+    /// Путь для сохранения height.png (по умолчанию: ./height.png)
+    #[arg(short, long, default_value = "height.png")]
+    output: PathBuf,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Парсим аргументы командной строки
     let cli = Cli::parse();
 
-    // Загружаем конфиг из файла
+    println!("🔍 Загрузка конфигурации...");
     let params = WorldGenerationParams::from_toml_file(cli.config.to_str().unwrap())?;
 
-    // Выводим параметры в человекочитаемом виде
-    println!("✅ Загружены параметры генерации:");
-    println!();
-    println!("  Seed:                  {}", params.seed);
-    println!("  Размер:                {} × {}", params.width, params.height);
-    println!("  Тип мира:              {:?}", params.world_type);
-    println!("  Целевая доля суши:     {:.1}%", params.world_type.target_land_ratio() * 100.0);
-    println!();
-    println!("  Климат:");
-    println!("    Глобальная температура:  {:+.2}", params.climate.global_temperature_offset);
-    println!("    Глобальная влажность:    {:+.2}", params.climate.global_humidity_offset);
-    println!("    Полярное усиление:       {:.2}", params.climate.polar_amplification);
-    println!();
-    println!("  Острова:");
-    println!("    Плотность:               {:.2}", params.islands.island_density);
-    println!("    Мин. размер (пиксели):   {}", params.islands.min_island_size);
-    println!();
-    println!("  Регионы:");
-    println!("    Количество:              {}", params.num_regions);
-    println!("    Масштаб морских пров.:   ×{:.1}", params.sea_province_scale);
+    println!(
+        "Генерация карты высот (размер: {}×{})...",
+        params.width, params.height
+    );
+    let heightmap = generate_heightmap(
+        params.seed,
+        params.width,
+        params.height,
+        params.world_type,
+        params.islands.island_density,
+    );
 
+    println!("Сохранение в {:?}", cli.output);
+    heightmap.save_as_png(cli.output.to_str().unwrap())?;
+
+    println!("\nГотово! Heightmap сохранена.");
     Ok(())
 }

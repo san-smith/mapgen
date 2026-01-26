@@ -1,6 +1,6 @@
 seed = 42
-width = 4096
-height = 2048
+width = 512
+height = 512
 world_type = "IceAgeEarth"
 
 [climate]

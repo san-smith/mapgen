@@ -1,0 +1,13 @@
+seed = 42
+width = 256
+height = 256
+world_type = "EarthLike"
+
+[climate]
+global_temperature_offset = 0.0
+
+[islands]
+island_density = 0.0
+min_island_size = 100
+
+num_regions = 10

@@ -1,4 +1,5 @@
 pub mod config;
+pub mod heightmap;
 
-// Публикуем основные типы на верхнем уровне
-pub use config::{WorldGenerationParams, WorldType, ClimateSettings, IslandSettings};
+pub use config::{ClimateSettings, IslandSettings, WorldGenerationParams, WorldType};
+pub use heightmap::{Heightmap, generate_heightmap};

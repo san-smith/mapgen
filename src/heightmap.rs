@@ -1,6 +1,7 @@
 use crate::config::WorldType;
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use image::{ImageBuffer, Luma};
+use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
 
 /// Двумерная карта высот: значения от 0.0 (глубокий океан) до 1.0 (высокие горы)
@@ -42,6 +43,118 @@ impl Heightmap {
         img.save(path)?;
         Ok(())
     }
+
+    /// Применяет термальную эрозию (гравитационное выветривание)
+    pub fn apply_thermal_erosion(&mut self, iterations: usize, talus_angle: f32) {
+        let width = self.width as usize;
+        let height = self.height as usize;
+        let mut temp_data = self.data.clone();
+
+        for _ in 0..iterations {
+            for y in 0..height {
+                for x in 0..width {
+                    let idx = y * width + x;
+                    let current_height = self.data[idx];
+                    let mut max_diff = 0.0;
+
+                    // Проверяем 4 соседа (можно расширить до 8)
+                    for &(dx, dy) in &[(0, 1), (1, 0), (0, -1), (-1, 0)] {
+                        let nx = x as i32 + dx;
+                        let ny = y as i32 + dy;
+                        if nx >= 0 && nx < width as i32 && ny >= 0 && ny < height as i32 {
+                            let nidx = (ny as usize) * width + (nx as usize);
+                            let diff = current_height - self.data[nidx];
+                            if diff > max_diff {
+                                max_diff = diff;
+                            }
+                        }
+                    }
+
+                    // Если перепад больше порога — перераспределяем
+                    if max_diff > talus_angle {
+                        let move_amount = (max_diff - talus_angle) * 0.5;
+                        temp_data[idx] -= move_amount;
+                        // Материал "падает" вниз — упрощённо просто уменьшаем высоту
+                    }
+                }
+            }
+            self.data.copy_from_slice(&temp_data);
+        }
+    }
+
+    /// Применяет гидрологическую эрозию
+    pub fn apply_hydraulic_erosion(&mut self, seed: u64, drops: usize, erosion_power: f32) {
+        let width = self.width as usize;
+        let height = self.height as usize;
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
+
+        for _ in 0..drops {
+            // Случайная стартовая точка
+            let mut x = rng.gen_range(0..width) as i32;
+            let mut y = rng.gen_range(0..height) as i32;
+
+            let mut sediment = 0.0; // Несомый материал
+            let mut speed = 0.0;
+
+            for _ in 0..30 {
+                // Макс. длина пути капли
+                let idx = (y as usize) * width + (x as usize);
+                if idx >= self.data.len() {
+                    break;
+                }
+
+                // Найдём самый низкий сосед
+                let mut min_height = self.data[idx];
+                let mut next_x = x;
+                let mut next_y = y;
+
+                for &(dx, dy) in &[(0, 1), (1, 0), (0, -1), (-1, 0)] {
+                    let nx = x + dx;
+                    let ny = y + dy;
+                    if nx >= 0 && nx < width as i32 && ny >= 0 && ny < height as i32 {
+                        let nidx = (ny as usize) * width + (nx as usize);
+                        if self.data[nidx] < min_height {
+                            min_height = self.data[nidx];
+                            next_x = nx;
+                            next_y = ny;
+                        }
+                    }
+                }
+
+                // Если не можем двигаться дальше — выходим
+                if next_x == x && next_y == y {
+                    break;
+                }
+
+                // Обновляем скорость
+                let height_diff = self.data[idx] - min_height;
+                speed = speed * 0.9 + height_diff; // Инерция + уклон
+
+                // Эрозия: забираем материал
+                let erosion = (speed * erosion_power).min(self.data[idx] * 0.5);
+                self.data[idx] -= erosion;
+                sediment += erosion;
+
+                // Отложение: если скорость мала
+                if speed < 0.1 && sediment > 0.0 {
+                    let deposit = sediment * 0.1;
+                    self.data[idx] += deposit;
+                    sediment -= deposit;
+                }
+
+                x = next_x;
+                y = next_y;
+            }
+
+            // Оставшийся осадок откладываем в конце
+            if sediment > 0.0 {
+                let idx = (y as usize) * width + (x as usize);
+                if idx < self.data.len() {
+                    self.data[idx] += sediment;
+                }
+            }
+        }
+    }
 }
 
 /// Генерирует карту высот на основе параметров
@@ -56,50 +169,56 @@ pub fn generate_heightmap(
     let height_f = height as f32;
     let target_land_ratio = world_type.target_land_ratio();
 
+    // === 1. Базовый шум ===
     let mut noise = FastNoiseLite::new();
     noise.set_seed(Some(seed as i32));
-    noise.set_noise_type(Some(NoiseType::OpenSimplex2)); // Более естественный шум
-    noise.set_fractal_type(Some(FractalType::FBm)); // Фрактальный шум для деталей
-    noise.set_fractal_octaves(Some(5)); // Больше октав = больше деталей
+    noise.set_noise_type(Some(NoiseType::OpenSimplex2));
+    noise.set_fractal_type(Some(FractalType::FBm));
+    noise.set_fractal_octaves(Some(5));
+    noise.set_frequency(Some(0.005)); // низкая частота для крупных форм
 
-    // Частота теперь работает правильно, так как мы будем передавать x, y
-    // Чем меньше значение, тем крупнее объекты
-    noise.set_frequency(Some(0.005));
-
-    // === 1. Генерация базового рельефа ===
-    // Используем плоский вектор сразу, Rayon отлично с этим справляется
-    let mut data: Vec<f32> = (0..(width * height))
+    let data: Vec<f32> = (0..(width * height))
         .into_par_iter()
         .map(|i| {
             let x = (i % width) as f32;
             let y = (i / width) as f32;
-
-            // Передаем сырые координаты x, y.
-            // noise.get_noise_2d сам применит частоту (frequency)
             let mut value = noise.get_noise_2d(x, y);
+            value = (value + 1.0) * 0.5; // [-1,1] → [0,1]
 
-            // Приводим из [-1, 1] в [0, 1]
-            value = (value + 1.0) * 0.5;
-
-            // Небольшая коррекция типа мира
             if matches!(world_type, WorldType::Archipelago) {
-                value = value * value; // Делаем низменности шире (острова острее)
+                value = value * value; // усиливаем острова
             }
             value
         })
         .collect();
 
-    // === 2. Оценка уровня моря ===
-    let mut sorted = data.clone();
+    // Создаём временный heightmap для эрозии
+    let mut heightmap = Heightmap {
+        width,
+        height,
+        data,
+    };
+
+    // === 2. Эрозия ===
+    heightmap.apply_thermal_erosion(3, 0.02);
+    heightmap.apply_hydraulic_erosion(seed, (width * height / 100) as usize, 0.01);
+
+    // === 3. Оценка уровня моря ===
+    let mut sorted = heightmap.data.clone();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let current_sea_level =
         sorted[(((1.0 - target_land_ratio) * sorted.len() as f32) as usize).min(sorted.len() - 1)];
 
-    // === 3. Маска океана и добавление островов ===
-    let ocean_mask: Vec<bool> = data.par_iter().map(|&h| h < current_sea_level).collect();
+    // === 4. Маска океана и добавление островов ===
+    let ocean_mask: Vec<bool> = heightmap
+        .data
+        .par_iter()
+        .map(|&h| h < current_sea_level)
+        .collect();
 
     let island_strength = island_density * 0.3;
-    data = data
+    heightmap.data = heightmap
+        .data
         .into_par_iter()
         .enumerate()
         .map(|(i, h)| {
@@ -127,12 +246,15 @@ pub fn generate_heightmap(
         })
         .collect();
 
-    // === 4. Нормализация под целевую долю суши ===
-    let min_h = data.iter().fold(f32::INFINITY, |a, &b| a.min(b));
-    let max_h = data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+    // === 5. Нормализация под целевую долю суши ===
+    let min_h = heightmap.data.iter().fold(f32::INFINITY, |a, &b| a.min(b));
+    let max_h = heightmap
+        .data
+        .iter()
+        .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
 
     if max_h > min_h {
-        for h in &mut data {
+        for h in &mut heightmap.data {
             *h = (*h - min_h) / (max_h - min_h);
         }
     }
@@ -142,8 +264,8 @@ pub fn generate_heightmap(
     let mut best_diff = f32::INFINITY;
     for i in 0..100 {
         let offset = (i as f32) / 100.0 - 0.5;
-        let land_ratio =
-            data.iter().filter(|&&h| h + offset > 0.5).count() as f32 / data.len() as f32;
+        let land_ratio = heightmap.data.iter().filter(|&&h| h + offset > 0.5).count() as f32
+            / heightmap.data.len() as f32;
         let diff = (land_ratio - target_land_ratio).abs();
         if diff < best_diff {
             best_diff = diff;
@@ -151,13 +273,9 @@ pub fn generate_heightmap(
         }
     }
 
-    for h in &mut data {
+    for h in &mut heightmap.data {
         *h = (*h + best_offset).clamp(0.0, 1.0);
     }
 
-    Heightmap {
-        width,
-        height,
-        data,
-    }
+    heightmap
 }

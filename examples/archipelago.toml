@@ -1,0 +1,21 @@
+seed = 2025
+width = 512
+height = 512
+world_type = "Archipelago"
+
+[climate]
+global_temperature_offset = 0.2   # теплее
+global_humidity_offset = 0.1
+polar_amplification = 0.8        # слабые полюсы
+climate_latitude_exponent = 0.5   # почти нет льда
+
+[islands]
+island_density = 0.8             # очень много островов
+min_island_size = 80
+
+num_regions = 150
+
+[terrain]
+elevation_power = 0.85           # более резкий рельеф
+smooth_radius = 1
+mountain_compression = 0.5       # больше холмов и вулканов

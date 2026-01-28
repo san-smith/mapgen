@@ -1,0 +1,21 @@
+seed = 3030
+width = 512
+height = 512
+world_type = "Mediterranean"
+
+[climate]
+global_temperature_offset = 0.1   # тёплый климат
+global_humidity_offset = 0.0
+polar_amplification = 1.0
+climate_latitude_exponent = 0.65  # умеренные полюсы
+
+[islands]
+island_density = 0.2              # немного островов внутри моря
+min_island_size = 100
+
+num_regions = 110
+
+[terrain]
+elevation_power = 0.65            # плоские прибрежные равнины
+smooth_radius = 2                 # сильное сглаживание
+mountain_compression = 0.8        # горы только на периферии

@@ -4,8 +4,8 @@ height = 512
 world_type = "Supercontinent"
 
 [climate]
-global_temperature_offset = 0.1
-global_humidity_offset = 0.1
+global_temperature_offset = 0.0
+global_humidity_offset = 0.0
 polar_amplification = 1.0
 climate_latitude_exponent = 0.8
 

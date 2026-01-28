@@ -1,0 +1,21 @@
+seed = 4040
+width = 512
+height = 512
+world_type = "IceAgeEarth"
+
+[climate]
+global_temperature_offset = -0.1  # глобальное похолодание
+global_humidity_offset = -0.2     # суше
+polar_amplification = 1.8        # мощные ледники
+climate_latitude_exponent = 1.2   # расширенные полярные зоны
+
+[islands]
+island_density = 0.1
+min_island_size = 250
+
+num_regions = 90
+
+[terrain]
+elevation_power = 0.8            # более резкий рельеф (льды давят)
+smooth_radius = 1
+mountain_compression = 0.6       # больше гор (ледниковые формы)

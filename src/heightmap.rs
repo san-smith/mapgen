@@ -166,7 +166,6 @@ pub fn generate_heightmap(
     terrain: &TerrainSettings,
 ) -> Heightmap {
     let width_f = width as f32;
-    let height_f = height as f32;
     let target_land_ratio = world_type.target_land_ratio();
 
     // Параметры для цилиндрической проекции
@@ -298,7 +297,7 @@ pub fn generate_heightmap(
 }
 
 /// Сглаживание через среднее (3×3, 5×5 и т.д.)
-fn smooth_heightmap(data: &mut Vec<f32>, width: usize, height: usize, radius: usize) {
+pub fn smooth_heightmap(data: &mut Vec<f32>, width: usize, height: usize, radius: usize) {
     if radius == 0 || radius >= width || radius >= height {
         return;
     }

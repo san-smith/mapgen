@@ -47,47 +47,59 @@ pub fn assign_biomes(
     humidity: &[f32],
     sea_level: f32,
 ) -> BiomeMap {
-    let width = heightmap.width as usize;
-    let height = heightmap.height as usize;
-    let total = width * height;
+    let data = heightmap
+        .data
+        .iter()
+        .enumerate()
+        .map(|(i, &elevation)| {
+            let temp = temperature[i];
+            let humid = humidity[i];
 
-    let mut data = Vec::with_capacity(total);
-
-    for i in 0..total {
-        let elevation = heightmap.data[i];
-        let temp = temperature[i];
-        let humid = humidity[i];
-
-        let biome = if elevation < sea_level {
-            Biome::Ocean
-        } else if elevation > 0.7 {
-            Biome::Mountain
-        } else if temp < 0.2 {
-            Biome::Ice
-        } else if temp < 0.4 {
-            Biome::Tundra
-        } else if humid > 0.7 {
-            if temp > 0.7 {
-                Biome::TropicalRainforest
-            } else {
-                Biome::TemperateForest
+            if elevation < sea_level {
+                return Biome::Ocean;
             }
-        } else if humid > 0.4 {
-            if temp > 0.6 {
-                Biome::Savanna
-            } else {
-                Biome::Grassland
-            }
-        } else {
-            if temp > 0.5 && humid > 0.2 {
-                Biome::Swamp
-            } else {
-                Biome::Desert
-            }
-        };
 
-        data.push(biome);
-    }
+            // 1. Горы: поднимаем порог до 0.8+ и учитываем температуру
+            // На холоде горы превращаются в лед (Ice), а не в серые скалы
+            if elevation > 0.85 {
+                return Biome::Mountain;
+            }
+            if elevation > 0.75 && temp < 0.3 {
+                return Biome::Ice;
+            }
+
+            // 2. Распределение зон (измененные пороги для расширения умеренной зоны)
+            if temp < 0.15 {
+                // Сильно уменьшили зону льда
+                Biome::Ice
+            } else if temp < 0.3 {
+                // Уменьшили тундру
+                if humid < 0.4 {
+                    Biome::Tundra
+                } else {
+                    Biome::Taiga
+                }
+            } else if temp < 0.65 {
+                // УВЕЛИЧИЛИ умеренную зону (было 0.5)
+                if humid < 0.35 {
+                    Biome::Grassland
+                } else if humid < 0.7 {
+                    Biome::TemperateForest
+                } else {
+                    Biome::Swamp
+                }
+            } else {
+                // Тропики и пустыни
+                if humid < 0.25 {
+                    Biome::Desert
+                } else if humid < 0.55 {
+                    Biome::Savanna
+                } else {
+                    Biome::TropicalRainforest
+                }
+            }
+        })
+        .collect();
 
     BiomeMap {
         width: heightmap.width,

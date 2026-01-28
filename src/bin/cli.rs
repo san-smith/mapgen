@@ -1,4 +1,5 @@
 use clap::Parser;
+use mapgen::climate::calculate_humidity;
 use mapgen::config::TerrainSettings;
 use mapgen::{
     WorldGenerationParams, biome::assign_biomes, climate::generate_climate_maps,
@@ -54,17 +55,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // === Климат и биомы ===
     println!("🌡️  Генерация климата и биомов...");
-    let climate_maps = generate_climate_maps(&heightmap, &params.climate);
+    let (temperature, winds) =
+        generate_climate_maps(params.seed, params.width, params.height, &heightmap.data);
 
-    // Оценим уровень моря (можно улучшить позже)
-    let sea_level = 0.5; // временно
-
-    let biome_map = assign_biomes(
-        &heightmap,
-        &climate_maps.temperature,
-        &climate_maps.humidity,
+    // 3. Вычисляем влажность с учетом гор и ветров
+    // Функция прогонит "воздух" по кругу, создавая дождевые тени за горами
+    let sea_level = 0.5; // Уровень моря после вашей нормализации
+    let humidity = calculate_humidity(
+        params.width,
+        params.height,
+        &heightmap.data,
+        &winds,
         sea_level,
     );
+
+    let biome_map = assign_biomes(&heightmap, &temperature, &humidity, sea_level);
 
     let biomes_path = cli.output.join("biomes.png");
     println!("🎨 Сохранение biomes.png в {:?}", biomes_path);

@@ -1,4 +1,4 @@
-use crate::config::WorldType;
+use crate::config::{TerrainSettings, WorldType};
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use image::{ImageBuffer, Luma};
 use rand::{Rng, SeedableRng};
@@ -164,6 +164,7 @@ pub fn generate_heightmap(
     height: u32,
     world_type: WorldType,
     island_density: f32,
+    terrain: &TerrainSettings,
 ) -> Heightmap {
     let width_f = width as f32;
     let height_f = height as f32;
@@ -174,10 +175,23 @@ pub fn generate_heightmap(
     noise.set_seed(Some(seed as i32));
     noise.set_noise_type(Some(NoiseType::OpenSimplex2));
     noise.set_fractal_type(Some(FractalType::FBm));
-    noise.set_fractal_octaves(Some(5));
-    noise.set_frequency(Some(0.005)); // низкая частота для крупных форм
 
-    let data: Vec<f32> = (0..(width * height))
+    // Адаптируем октавы под тип мира
+    let octaves = match world_type {
+        WorldType::Supercontinent | WorldType::Mediterranean => 3,
+        WorldType::Archipelago => 4,
+        _ => 5,
+    };
+    noise.set_fractal_octaves(Some(octaves));
+
+    // Частота: крупные формы для континентов
+    let base_frequency = match world_type {
+        WorldType::Supercontinent | WorldType::Mediterranean => 0.002,
+        _ => 0.005,
+    };
+    noise.set_frequency(Some(base_frequency));
+
+    let mut data: Vec<f32> = (0..(width * height))
         .into_par_iter()
         .map(|i| {
             let x = (i % width) as f32;
@@ -192,6 +206,21 @@ pub fn generate_heightmap(
         })
         .collect();
 
+    // === 2. Сглаживание рельефа ===
+    if terrain.smooth_radius > 0 {
+        smooth_heightmap(
+            &mut data,
+            width as usize,
+            height as usize,
+            terrain.smooth_radius,
+        );
+    }
+
+    // === 3. Ограничение максимальной высоты ===
+    for h in &mut data {
+        *h = h.powf(terrain.elevation_power);
+    }
+
     // Создаём временный heightmap для эрозии
     let mut heightmap = Heightmap {
         width,
@@ -199,17 +228,16 @@ pub fn generate_heightmap(
         data,
     };
 
-    // === 2. Эрозия ===
+    // === 4. Эрозия ===
     heightmap.apply_thermal_erosion(3, 0.02);
     heightmap.apply_hydraulic_erosion(seed, (width * height / 100) as usize, 0.01);
 
-    // === 3. Оценка уровня моря ===
+    // === 5. Остальная логика (острова, нормализация) ===
     let mut sorted = heightmap.data.clone();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let current_sea_level =
         sorted[(((1.0 - target_land_ratio) * sorted.len() as f32) as usize).min(sorted.len() - 1)];
 
-    // === 4. Маска океана и добавление островов ===
     let ocean_mask: Vec<bool> = heightmap
         .data
         .par_iter()
@@ -238,7 +266,7 @@ pub fn generate_heightmap(
                 island_gen.set_fractal_gain(Some(0.4));
 
                 let island_val = island_gen.get_noise_2d(nx, ny);
-                let island_val = (island_val + 1.0) * 0.5; // [-1,1] → [0,1]
+                let island_val = (island_val + 1.0) * 0.5;
                 h + island_val * island_strength
             } else {
                 h
@@ -246,7 +274,7 @@ pub fn generate_heightmap(
         })
         .collect();
 
-    // === 5. Нормализация под целевую долю суши ===
+    // Нормализация
     let min_h = heightmap.data.iter().fold(f32::INFINITY, |a, &b| a.min(b));
     let max_h = heightmap
         .data
@@ -259,7 +287,7 @@ pub fn generate_heightmap(
         }
     }
 
-    // Подбор сдвига для точного соответствия доле суши
+    // Подбор сдвига под долю суши
     let mut best_offset = 0.0;
     let mut best_diff = f32::INFINITY;
     for i in 0..100 {
@@ -278,4 +306,31 @@ pub fn generate_heightmap(
     }
 
     heightmap
+}
+
+/// Сглаживает heightmap с заданным радиусом
+fn smooth_heightmap(data: &mut Vec<f32>, width: usize, height: usize, radius: usize) {
+    if radius == 0 {
+        return;
+    }
+
+    let mut temp = data.clone();
+    let kernel_size = radius * 2 + 1;
+    let kernel_area = (kernel_size * kernel_size) as f32;
+
+    for y in radius..(height - radius) {
+        for x in radius..(width - radius) {
+            let mut sum = 0.0;
+            for dy in 0..kernel_size {
+                for dx in 0..kernel_size {
+                    let src_x = (x - radius + dx) as usize;
+                    let src_y = (y - radius + dy) as usize;
+                    sum += data[src_y * width + src_x];
+                }
+            }
+            temp[y * width + x] = sum / kernel_area;
+        }
+    }
+
+    data.copy_from_slice(&temp);
 }

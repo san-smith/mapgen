@@ -16,12 +16,26 @@ impl WorldType {
     /// Целевая доля суши (0.0 = всё море, 1.0 = вся суша)
     pub fn target_land_ratio(self) -> f32 {
         match self {
-            WorldType::EarthLike => 0.30,
+            WorldType::EarthLike => 0.40,
             WorldType::Supercontinent => 0.70,
             WorldType::Archipelago => 0.15,
             WorldType::Mediterranean => 0.25,
             WorldType::IceAgeEarth => 0.35, // больше льда = больше "суши", но непригодной
             WorldType::DesertMediterranean => 0.20,
+        }
+    }
+
+    pub fn default_terrain(&self) -> TerrainSettings {
+        match self {
+            WorldType::Supercontinent | WorldType::Mediterranean => TerrainSettings {
+                elevation_power: 0.65,
+                smooth_radius: 2, // сильное сглаживание
+            },
+            WorldType::Archipelago => TerrainSettings {
+                elevation_power: 1.5,
+                smooth_radius: 1,
+            },
+            _ => TerrainSettings::default(), // EarthLike, IceAgeEarth и др.
         }
     }
 }
@@ -45,9 +59,15 @@ pub struct ClimateSettings {
     pub polar_amplification: f32,
 }
 
-fn default_temperature_offset() -> f32 { 0.0 }
-fn default_humidity_offset() -> f32 { 0.0 }
-fn default_polar_amplification() -> f32 { 1.0 }
+fn default_temperature_offset() -> f32 {
+    0.0
+}
+fn default_humidity_offset() -> f32 {
+    0.0
+}
+fn default_polar_amplification() -> f32 {
+    1.0
+}
 
 impl Default for ClimateSettings {
     fn default() -> Self {
@@ -69,8 +89,12 @@ pub struct IslandSettings {
     pub min_island_size: u32,
 }
 
-fn default_island_density() -> f32 { 0.2 }
-fn default_min_island_size() -> u32 { 200 }
+fn default_island_density() -> f32 {
+    0.2
+}
+fn default_min_island_size() -> u32 {
+    200
+}
 
 impl Default for IslandSettings {
     fn default() -> Self {
@@ -106,6 +130,9 @@ pub struct WorldGenerationParams {
 
     #[serde(default = "default_sea_province_scale")]
     pub sea_province_scale: f32,
+
+    #[serde(default)]
+    pub terrain: TerrainSettings,
 }
 
 impl WorldGenerationParams {
@@ -117,10 +144,18 @@ impl WorldGenerationParams {
     }
 }
 
-fn default_width() -> u32 { 2048 }
-fn default_height() -> u32 { 1024 }
-fn default_num_regions() -> usize { 100 }
-fn default_sea_province_scale() -> f32 { 2.5 }
+fn default_width() -> u32 {
+    2048
+}
+fn default_height() -> u32 {
+    1024
+}
+fn default_num_regions() -> usize {
+    100
+}
+fn default_sea_province_scale() -> f32 {
+    2.5
+}
 
 impl Default for WorldGenerationParams {
     fn default() -> Self {
@@ -133,6 +168,38 @@ impl Default for WorldGenerationParams {
             islands: IslandSettings::default(),
             num_regions: 100,
             sea_province_scale: 2.5,
+            terrain: TerrainSettings::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TerrainSettings {
+    /// Кривая высоты:
+    /// - <1.0 → сглаживает (меньше гор),
+    /// - =1.0 → линейно,
+    /// - >1.0 → усиливает рельеф (больше гор)
+    #[serde(default = "default_elevation_power")]
+    pub elevation_power: f32,
+
+    /// Радиус сглаживания (0 = нет, 1 = 3×3, 2 = 5×5)
+    #[serde(default = "default_smooth_radius")]
+    pub smooth_radius: usize,
+}
+
+fn default_smooth_radius() -> usize {
+    1
+}
+
+impl Default for TerrainSettings {
+    fn default() -> Self {
+        Self {
+            elevation_power: 1.0,
+            smooth_radius: 1,
+        }
+    }
+}
+
+fn default_elevation_power() -> f32 {
+    1.0
 }

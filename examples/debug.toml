@@ -1,7 +1,7 @@
 seed = 42
-width = 256
-height = 256
-world_type = "EarthLike"
+width = 512
+height = 512
+world_type = "Supercontinent"
 
 [climate]
 global_temperature_offset = 0.0
@@ -10,4 +10,7 @@ global_temperature_offset = 0.0
 island_density = 0.0
 min_island_size = 100
 
-num_regions = 10
+# Явное управление рельефом (опционально)
+[terrain]
+elevation_power = 0.1
+smooth_radius = 2

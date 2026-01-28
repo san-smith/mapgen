@@ -1,10 +1,8 @@
 use clap::Parser;
+use mapgen::config::TerrainSettings;
 use mapgen::{
-    WorldGenerationParams,
-    biome::{BiomeMap, assign_biomes},
-    climate::generate_climate_maps,
-    generate_heightmap,
-    rivers::generate_rivers,
+    WorldGenerationParams, biome::assign_biomes, climate::generate_climate_maps,
+    generate_heightmap, rivers::generate_rivers,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -35,12 +33,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "🌍 Генерация карты высот (размер: {}×{})...",
         params.width, params.height
     );
+    let terrain = if params.terrain != TerrainSettings::default() {
+        params.terrain.clone()
+    } else {
+        params.world_type.default_terrain()
+    };
+
     let heightmap = generate_heightmap(
         params.seed,
         params.width,
         params.height,
         params.world_type,
         params.islands.island_density,
+        &terrain,
     );
 
     let height_path = cli.output.join("height.png");
@@ -67,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // === Реки ===
     println!("🌊 Генерация рек...");
-    let river_map = generate_rivers(&heightmap);
+    let river_map = generate_rivers(&heightmap, &biome_map);
 
     let rivers_path = cli.output.join("rivers.png");
     println!("💧 Сохранение rivers.png в {:?}", rivers_path);

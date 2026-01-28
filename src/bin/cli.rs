@@ -55,8 +55,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // === Климат и биомы ===
     println!("🌡️  Генерация климата и биомов...");
-    let (temperature, winds) =
-        generate_climate_maps(params.seed, params.width, params.height, &heightmap.data);
+    let (temperature, winds) = generate_climate_maps(
+        params.seed,
+        params.width,
+        params.height,
+        &heightmap.data,
+        params.climate.global_temperature_offset,
+        params.climate.polar_amplification,
+        params.climate.climate_latitude_exponent,
+    );
 
     // 3. Вычисляем влажность с учетом гор и ветров
     // Функция прогонит "воздух" по кругу, создавая дождевые тени за горами
@@ -67,6 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &heightmap.data,
         &winds,
         sea_level,
+        params.climate.global_humidity_offset,
     );
 
     let biome_map = assign_biomes(&heightmap, &temperature, &humidity, sea_level);

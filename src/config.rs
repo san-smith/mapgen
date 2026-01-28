@@ -16,7 +16,7 @@ impl WorldType {
     /// Целевая доля суши (0.0 = всё море, 1.0 = вся суша)
     pub fn target_land_ratio(self) -> f32 {
         match self {
-            WorldType::EarthLike => 0.40,
+            WorldType::EarthLike => 0.30,
             WorldType::Supercontinent => 0.70,
             WorldType::Archipelago => 0.15,
             WorldType::Mediterranean => 0.25,
@@ -25,17 +25,36 @@ impl WorldType {
         }
     }
 
+    pub fn default_climate(&self) -> ClimateSettings {
+        match self {
+            WorldType::IceAgeEarth => ClimateSettings {
+                global_temperature_offset: -0.7,
+                global_humidity_offset: 0.0,
+                polar_amplification: 1.8,
+                climate_latitude_exponent: 1.2, // расширенные полюсы
+            },
+            _ => ClimateSettings {
+                global_temperature_offset: 0.0,
+                global_humidity_offset: 0.0,
+                polar_amplification: 1.0,
+                climate_latitude_exponent: 0.65, // сжатые полюсы → больше играбельной зоны
+            },
+        }
+    }
+
     pub fn default_terrain(&self) -> TerrainSettings {
         match self {
             WorldType::Supercontinent | WorldType::Mediterranean => TerrainSettings {
                 elevation_power: 0.65,
-                smooth_radius: 2, // сильное сглаживание
+                smooth_radius: 2,
+                mountain_compression: 0.8, // сильное сжатие гор
             },
             WorldType::Archipelago => TerrainSettings {
-                elevation_power: 1.5,
+                elevation_power: 0.75,
                 smooth_radius: 1,
+                mountain_compression: 0.5,
             },
-            _ => TerrainSettings::default(), // EarthLike, IceAgeEarth и др.
+            _ => TerrainSettings::default(),
         }
     }
 }
@@ -57,6 +76,13 @@ pub struct ClimateSettings {
 
     #[serde(default = "default_polar_amplification")]
     pub polar_amplification: f32,
+
+    /// Экспонента для сжатия полярных зон по широте:
+    /// - <1.0 → сжимает полюсы (больше умеренных зон),
+    /// - =1.0 → линейно,
+    /// - >1.0 → расширяет полюсы.
+    #[serde(default = "default_climate_latitude_exponent")]
+    pub climate_latitude_exponent: f32,
 }
 
 fn default_temperature_offset() -> f32 {
@@ -68,6 +94,9 @@ fn default_humidity_offset() -> f32 {
 fn default_polar_amplification() -> f32 {
     1.0
 }
+fn default_climate_latitude_exponent() -> f32 {
+    0.65
+}
 
 impl Default for ClimateSettings {
     fn default() -> Self {
@@ -75,6 +104,7 @@ impl Default for ClimateSettings {
             global_temperature_offset: 0.0,
             global_humidity_offset: 0.0,
             polar_amplification: 1.0,
+            climate_latitude_exponent: 0.65,
         }
     }
 }
@@ -175,31 +205,40 @@ impl Default for WorldGenerationParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TerrainSettings {
-    /// Кривая высоты:
-    /// - <1.0 → сглаживает (меньше гор),
+    /// Степень нелинейности высоты:
+    /// - <1.0 → сглаживает рельеф (меньше гор),
     /// - =1.0 → линейно,
-    /// - >1.0 → усиливает рельеф (больше гор)
+    /// - >1.0 → усиливает рельеф.
     #[serde(default = "default_elevation_power")]
     pub elevation_power: f32,
 
     /// Радиус сглаживания (0 = нет, 1 = 3×3, 2 = 5×5)
     #[serde(default = "default_smooth_radius")]
     pub smooth_radius: usize,
+
+    /// Сжатие горных зон при назначении биомов:
+    /// - 0.0 = линейно,
+    /// - 1.0 = сильное сжатие (горы только на пиках).
+    #[serde(default = "default_mountain_compression")]
+    pub mountain_compression: f32,
 }
 
+fn default_elevation_power() -> f32 {
+    0.8
+}
 fn default_smooth_radius() -> usize {
     1
+}
+fn default_mountain_compression() -> f32 {
+    0.7
 }
 
 impl Default for TerrainSettings {
     fn default() -> Self {
         Self {
-            elevation_power: 1.0,
+            elevation_power: 0.8,
             smooth_radius: 1,
+            mountain_compression: 0.7,
         }
     }
-}
-
-fn default_elevation_power() -> f32 {
-    1.0
 }

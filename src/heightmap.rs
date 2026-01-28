@@ -55,26 +55,30 @@ impl Heightmap {
                 for x in 0..width {
                     let idx = y * width + x;
                     let current_height = self.data[idx];
-                    let mut max_diff = 0.0;
 
-                    // Проверяем 4 соседа (можно расширить до 8)
+                    let mut max_diff = 0.0;
+                    let mut target_idx = idx;
+
                     for &(dx, dy) in &[(0, 1), (1, 0), (0, -1), (-1, 0)] {
-                        let nx = x as i32 + dx;
+                        // X зацикливаем, Y ограничиваем
+                        let nx = (x as i32 + dx).rem_euclid(width as i32) as usize;
                         let ny = y as i32 + dy;
-                        if nx >= 0 && nx < width as i32 && ny >= 0 && ny < height as i32 {
-                            let nidx = (ny as usize) * width + (nx as usize);
+
+                        if ny >= 0 && ny < height as i32 {
+                            let nidx = (ny as usize) * width + nx;
                             let diff = current_height - self.data[nidx];
                             if diff > max_diff {
                                 max_diff = diff;
+                                target_idx = nidx;
                             }
                         }
                     }
 
                     // Если перепад больше порога — перераспределяем
                     if max_diff > talus_angle {
-                        let move_amount = (max_diff - talus_angle) * 0.5;
+                        let move_amount = (max_diff - talus_angle) * 0.3; // Коэффициент переноса
                         temp_data[idx] -= move_amount;
-                        // Материал "падает" вниз — упрощённо просто уменьшаем высоту
+                        temp_data[target_idx] += move_amount; // Материал перемещается, а не исчезает
                     }
                 }
             }
@@ -99,24 +103,21 @@ impl Heightmap {
             for _ in 0..30 {
                 // Макс. длина пути капли
                 let idx = (y as usize) * width + (x as usize);
-                if idx >= self.data.len() {
-                    break;
-                }
 
-                // Найдём самый низкий сосед
                 let mut min_height = self.data[idx];
-                let mut next_x = x;
-                let mut next_y = y;
+                let (mut next_x, mut next_y) = (x, y);
 
                 for &(dx, dy) in &[(0, 1), (1, 0), (0, -1), (-1, 0)] {
-                    let nx = x + dx;
-                    let ny = y + dy;
-                    if nx >= 0 && nx < width as i32 && ny >= 0 && ny < height as i32 {
-                        let nidx = (ny as usize) * width + (nx as usize);
+                    // X бесшовный через rem_euclid
+                    let nx_val = (x + dx).rem_euclid(width as i32);
+                    let ny_val = y + dy;
+
+                    if ny_val >= 0 && ny_val < height as i32 {
+                        let nidx = (ny_val as usize) * width + (nx_val as usize);
                         if self.data[nidx] < min_height {
                             min_height = self.data[nidx];
-                            next_x = nx;
-                            next_y = ny;
+                            next_x = nx_val;
+                            next_y = ny_val;
                         }
                     }
                 }
@@ -148,16 +149,14 @@ impl Heightmap {
 
             // Оставшийся осадок откладываем в конце
             if sediment > 0.0 {
-                let idx = (y as usize) * width + (x as usize);
-                if idx < self.data.len() {
-                    self.data[idx] += sediment;
-                }
+                let final_idx = (y as usize) * width + (x as usize);
+                self.data[final_idx] += sediment;
             }
         }
     }
 }
 
-/// Генерирует карту высот на основе параметров
+/// Генерирует карту высот с бесшовностью по долготе и нелинейной коррекцией
 pub fn generate_heightmap(
     seed: u64,
     width: u32,
@@ -170,13 +169,16 @@ pub fn generate_heightmap(
     let height_f = height as f32;
     let target_land_ratio = world_type.target_land_ratio();
 
-    // === 1. Базовый шум ===
+    // Параметры для цилиндрической проекции
+    let radius = width_f / (2.0 * std::f32::consts::PI);
+
+    // === 1. Базовый шум (3D для бесшовности) ===
     let mut noise = FastNoiseLite::new();
     noise.set_seed(Some(seed as i32));
     noise.set_noise_type(Some(NoiseType::OpenSimplex2));
     noise.set_fractal_type(Some(FractalType::FBm));
 
-    // Адаптируем октавы под тип мира
+    // Адаптируем октавы
     let octaves = match world_type {
         WorldType::Supercontinent | WorldType::Mediterranean => 3,
         WorldType::Archipelago => 4,
@@ -196,17 +198,44 @@ pub fn generate_heightmap(
         .map(|i| {
             let x = (i % width) as f32;
             let y = (i / width) as f32;
-            let mut value = noise.get_noise_2d(x, y);
-            value = (value + 1.0) * 0.5; // [-1,1] → [0,1]
+
+            // Цилиндрические координаты
+            let angle = (x / width_f) * 2.0 * std::f32::consts::PI;
+            let nx = radius * angle.cos();
+            let nz = radius * angle.sin();
+            let ny = y;
+
+            let mut value = noise.get_noise_3d(nx, ny, nz);
+            value = (value + 1.0) * 0.5;
 
             if matches!(world_type, WorldType::Archipelago) {
-                value = value * value; // усиливаем острова
+                value = value * value;
             }
             value
         })
         .collect();
 
-    // === 2. Сглаживание рельефа ===
+    // === 2. Добавление островов (До эрозии и без масок!) ===
+    if island_density > 0.1 {
+        let mut island_gen = FastNoiseLite::new();
+        island_gen.set_seed(Some(seed.wrapping_add(2_000_000) as i32));
+        island_gen.set_noise_type(Some(NoiseType::OpenSimplex2));
+        island_gen.set_frequency(Some(0.015)); // Частота для мелких островов
+
+        data.par_iter_mut().enumerate().for_each(|(i, h)| {
+            let x = (i % width as usize) as f32;
+            let y = (i / width as usize) as f32;
+            let angle = (x / width_f) * 2.0 * std::f32::consts::PI;
+
+            let iv = island_gen.get_noise_3d(radius * angle.cos(), y, radius * angle.sin());
+            let island_val = (iv + 1.0) * 0.5;
+
+            // Мягкое наложение: острова сильнее проявляются в низинах
+            *h = *h + island_val * island_density * 0.25;
+        });
+    }
+
+    // === 3. Сглаживание (Оптимизированное бесшовное) ===
     if terrain.smooth_radius > 0 {
         smooth_heightmap(
             &mut data,
@@ -216,71 +245,27 @@ pub fn generate_heightmap(
         );
     }
 
-    // === 3. Ограничение максимальной высоты ===
+    // === 4. Возведение в степень (Экспонента рельефа) ===
     for h in &mut data {
         *h = h.powf(terrain.elevation_power);
     }
 
-    // Создаём временный heightmap для эрозии
     let mut heightmap = Heightmap {
         width,
         height,
         data,
     };
 
-    // === 4. Эрозия ===
-    heightmap.apply_thermal_erosion(3, 0.02);
-    heightmap.apply_hydraulic_erosion(seed, (width * height / 100) as usize, 0.01);
+    // === 5. Эрозия (Бесшовная) ===
+    heightmap.apply_thermal_erosion(3, 0.015);
+    heightmap.apply_hydraulic_erosion(seed, (width * height / 80) as usize, 0.01);
 
-    // === 5. Остальная логика (острова, нормализация) ===
-    let mut sorted = heightmap.data.clone();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let current_sea_level =
-        sorted[(((1.0 - target_land_ratio) * sorted.len() as f32) as usize).min(sorted.len() - 1)];
-
-    let ocean_mask: Vec<bool> = heightmap
-        .data
-        .par_iter()
-        .map(|&h| h < current_sea_level)
-        .collect();
-
-    let island_strength = island_density * 0.3;
-    heightmap.data = heightmap
-        .data
-        .into_par_iter()
-        .enumerate()
-        .map(|(i, h)| {
-            if ocean_mask[i] {
-                let x = (i % width as usize) as f32;
-                let y = (i / width as usize) as f32;
-                let nx = x / width_f;
-                let ny = y / height_f;
-
-                let mut island_gen = FastNoiseLite::new();
-                island_gen.set_seed(Some(seed.wrapping_add(2_000_000) as i32));
-                island_gen.set_noise_type(Some(NoiseType::OpenSimplex2));
-                island_gen.set_frequency(Some(6.0 / width_f));
-                island_gen.set_fractal_type(Some(FractalType::FBm));
-                island_gen.set_fractal_octaves(Some(3));
-                island_gen.set_fractal_lacunarity(Some(2.0));
-                island_gen.set_fractal_gain(Some(0.4));
-
-                let island_val = island_gen.get_noise_2d(nx, ny);
-                let island_val = (island_val + 1.0) * 0.5;
-                h + island_val * island_strength
-            } else {
-                h
-            }
-        })
-        .collect();
-
-    // Нормализация
+    // === 6. Нормализация и подгонка уровня суши ===
     let min_h = heightmap.data.iter().fold(f32::INFINITY, |a, &b| a.min(b));
     let max_h = heightmap
         .data
         .iter()
         .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-
     if max_h > min_h {
         for h in &mut heightmap.data {
             *h = (*h - min_h) / (max_h - min_h);
@@ -292,8 +277,12 @@ pub fn generate_heightmap(
     let mut best_diff = f32::INFINITY;
     for i in 0..100 {
         let offset = (i as f32) / 100.0 - 0.5;
-        let land_ratio = heightmap.data.iter().filter(|&&h| h + offset > 0.5).count() as f32
-            / heightmap.data.len() as f32;
+        let land_count = heightmap
+            .data
+            .iter()
+            .filter(|&&h| (h + offset).clamp(0.0, 1.0) > 0.5)
+            .count();
+        let land_ratio = land_count as f32 / heightmap.data.len() as f32;
         let diff = (land_ratio - target_land_ratio).abs();
         if diff < best_diff {
             best_diff = diff;
@@ -308,29 +297,59 @@ pub fn generate_heightmap(
     heightmap
 }
 
-/// Сглаживает heightmap с заданным радиусом
+/// Сглаживание через среднее (3×3, 5×5 и т.д.)
 fn smooth_heightmap(data: &mut Vec<f32>, width: usize, height: usize, radius: usize) {
-    if radius == 0 {
+    if radius == 0 || radius >= width || radius >= height {
         return;
     }
 
-    let mut temp = data.clone();
-    let kernel_size = radius * 2 + 1;
-    let kernel_area = (kernel_size * kernel_size) as f32;
+    let mut temp = vec![0.0; data.len()];
+    let r = radius as i32;
 
-    for y in radius..(height - radius) {
-        for x in radius..(width - radius) {
-            let mut sum = 0.0;
-            for dy in 0..kernel_size {
-                for dx in 0..kernel_size {
-                    let src_x = (x - radius + dx) as usize;
-                    let src_y = (y - radius + dy) as usize;
-                    sum += data[src_y * width + src_x];
-                }
-            }
-            temp[y * width + x] = sum / kernel_area;
+    // 1. Горизонтальный проход (Бесшовный)
+    for y in 0..height {
+        let row_offset = y * width;
+        let mut window_sum = 0.0;
+
+        // Инициализируем окно, учитывая зацикливание слева
+        for dx in -r..=r {
+            let x = dx.rem_euclid(width as i32) as usize;
+            window_sum += data[row_offset + x];
+        }
+
+        for x in 0..width {
+            temp[row_offset + x] = window_sum / (2.0 * r as f32 + 1.0);
+
+            // Сдвигаем окно: убираем левый пиксель, добавляем правый
+            let left = ((x as i32 - r).rem_euclid(width as i32)) as usize;
+            let right = ((x as i32 + r + 1).rem_euclid(width as i32)) as usize;
+
+            window_sum = window_sum - data[row_offset + left] + data[row_offset + right];
         }
     }
 
-    data.copy_from_slice(&temp);
+    let mut final_data = vec![0.0; data.len()];
+
+    // 2. Вертикальный проход (С ограничением границ)
+    for x in 0..width {
+        let mut window_sum = 0.0;
+        let count = (2 * r + 1) as f32;
+
+        // Инициализируем окно (для Y используем clamp на границах)
+        for dy in -r..=r {
+            let y = dy.clamp(0, height as i32 - 1) as usize;
+            window_sum += temp[y * width + x];
+        }
+
+        for y in 0..height {
+            final_data[y * width + x] = window_sum / count;
+
+            let top = (y as i32 - r).clamp(0, height as i32 - 1) as usize;
+            let bottom = (y as i32 + r + 1).clamp(0, height as i32 - 1) as usize;
+
+            window_sum = window_sum - temp[top * width + x] + temp[bottom * width + x];
+        }
+    }
+
+    data.copy_from_slice(&final_data);
 }

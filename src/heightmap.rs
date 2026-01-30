@@ -154,6 +154,75 @@ impl Heightmap {
             }
         }
     }
+
+    /// Генерирует карту нормалей из карты высот
+    pub fn generate_normals(&self) -> Vec<[u8; 3]> {
+        let width = self.width as usize;
+        let height = self.height as usize;
+        let mut normals = Vec::with_capacity(width * height);
+
+        // Масштаб высоты для вычисления градиента
+        let height_scale = 1.0;
+
+        for y in 0..height {
+            for x in 0..width {
+                // Градиент по X (разница между соседями по широте)
+                let left = self.get(
+                    ((x as i32 - 1).rem_euclid(self.width as i32)) as u32,
+                    y as u32,
+                );
+                let right = self.get(
+                    ((x as i32 + 1).rem_euclid(self.width as i32)) as u32,
+                    y as u32,
+                );
+                let dx = (right - left) * height_scale;
+
+                // Градиент по Y (разница между соседями по долготе)
+                let top = if y > 0 {
+                    self.get(x as u32, (y - 1) as u32)
+                } else {
+                    self.get(x as u32, y as u32)
+                };
+                let bottom = if y < height - 1 {
+                    self.get(x as u32, (y + 1) as u32)
+                } else {
+                    self.get(x as u32, y as u32)
+                };
+                let dy = (bottom - top) * height_scale;
+
+                // Нормаль = (-dx, -dy, 1), затем нормализуем
+                let nx = -dx;
+                let ny = -dy;
+                let nz = 1.0;
+                let len = (nx * nx + ny * ny + nz * nz).sqrt();
+                let nx = nx / len;
+                let ny = ny / len;
+                let nz = nz / len;
+
+                // Преобразуем из [-1, 1] → [0, 1] → [0, 255]
+                let r = ((nx * 0.5 + 0.5) * 255.0) as u8;
+                let g = ((ny * 0.5 + 0.5) * 255.0) as u8;
+                let b = ((nz * 0.5 + 0.5) * 255.0) as u8;
+
+                normals.push([r, g, b]);
+            }
+        }
+
+        normals
+    }
+
+    pub fn save_normals_as_png(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        use image::{ImageBuffer, Rgb};
+        let normals = self.generate_normals();
+        let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_raw(
+            self.width,
+            self.height,
+            normals.into_iter().flatten().collect(),
+        )
+        .ok_or("Failed to create normals image buffer")?;
+        img.save(path)?;
+        Ok(())
+    }
 }
 
 /// Генерирует карту высот с бесшовностью по долготе и нелинейной коррекцией

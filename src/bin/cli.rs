@@ -96,6 +96,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let water_type = classify_water(&heightmap, sea_level);
     let river_map = generate_rivers(&heightmap, &biome_map);
 
+    let normals_path = cli.output.join("normals.png");
+    println!("⛰️  Сохранение normals.png в {:?}", normals_path);
+    heightmap.save_normals_as_png(normals_path.to_str().unwrap())?;
+
     println!("🗺️  Генерация провинций...");
 
     let land_pixels_count = water_type.iter().filter(|&&t| t == WaterType::Land).count();

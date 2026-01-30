@@ -16,6 +16,6 @@ min_island_size = 150
 num_regions = 20
 
 [terrain]
-elevation_power = 0.75      # умеренный рельеф
+elevation_power = 0.95      # умеренный рельеф
 smooth_radius = 1           # лёгкое сглаживание
 mountain_compression = 0.7  # горы только на пиках

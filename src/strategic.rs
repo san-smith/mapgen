@@ -27,13 +27,19 @@ pub fn find_strategic_points(
 
             for &(x, y) in &province.pixels {
                 let idx = (y as usize) * (biome_map.width as usize) + (x as usize);
-                if biome_map.data[idx] == Biome::Ocean {
+                if biome_map.data[idx] == Biome::DeepOcean
+                    || biome_map.data[idx] == Biome::Ocean
+                    || biome_map.data[idx] == Biome::IcyOcean
+                    || biome_map.data[idx] == Biome::FrozenOcean
+                {
                     has_coast = true;
                 }
                 if river_map.data[idx] > 0 {
                     has_river = true;
                 }
-                if province.biome == Some(Biome::Mountain) {
+                if province.biome == Some(Biome::RockyMountain)
+                    || province.biome == Some(Biome::GlacialMountain)
+                {
                     has_mountain = true;
                 }
             }

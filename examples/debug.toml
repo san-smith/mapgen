@@ -1,22 +1,21 @@
-seed = 1001
+seed = 42
 width = 512
 height = 512
-world_type = "Supercontinent"
+world_type = "EarthLike"
 
 [climate]
-global_temperature_offset = 0.1
-global_humidity_offset = 0.1
+global_temperature_offset = 0.0
+global_humidity_offset = 0.2
 polar_amplification = 1.0
-climate_latitude_exponent = 0.8
+climate_latitude_exponent = 0.65  # сжатие полюсов → больше играбельной зоны
 
 [islands]
-island_density = 0.2             # мало островов
-min_island_size = 200
+island_density = 0.3
+min_island_size = 150
 
-num_regions = 15
+num_regions = 20
 
 [terrain]
-elevation_power = 0.6            # очень плоский центр
-smooth_radius = 2                # сильное сглаживание
-mountain_compression = 0.85      # почти нет гор
-total_provinces = 120
+elevation_power = 0.75      # умеренный рельеф
+smooth_radius = 1           # лёгкое сглаживание
+mountain_compression = 0.7  # горы только на пиках

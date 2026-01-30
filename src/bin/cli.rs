@@ -66,6 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &terrain,
     );
 
+    let sea_level = 0.5;
     // === Климат и биомы ===
     println!("🌡️  Генерация климата...");
     let (temperature, winds) = generate_climate_maps(
@@ -76,9 +77,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         params.climate.global_temperature_offset,
         params.climate.polar_amplification,
         params.climate.climate_latitude_exponent,
+        sea_level,
     );
 
-    let sea_level = 0.5;
     let humidity = calculate_humidity(
         params.width,
         params.height,
@@ -88,6 +89,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         params.climate.global_humidity_offset,
     );
     let biome_map = assign_biomes(&heightmap, &temperature, &humidity, sea_level);
+
+    println!("🖼️  Сохранение карты биомов...");
+    biome_map.save_as_png(cli.output.join("biomes.png").to_str().unwrap())?;
+
     let water_type = classify_water(&heightmap, sea_level);
     let river_map = generate_rivers(&heightmap, &biome_map);
 

@@ -39,7 +39,12 @@ pub fn generate_rivers(heightmap: &Heightmap, biomemap: &BiomeMap) -> RiverMap {
         let biome = biomemap.data[idx];
 
         // Реки не текут во льдах и не начинаются в пустынях
-        if biome == Biome::Ice || biome == Biome::Ocean {
+        if biome == Biome::Ice
+            || biome == Biome::Ocean
+            || biome == Biome::DeepOcean
+            || biome == Biome::IcyOcean
+            || biome == Biome::FrozenOcean
+        {
             flow[idx] = 0.0;
             continue;
         }
@@ -84,7 +89,13 @@ pub fn generate_rivers(heightmap: &Heightmap, biomemap: &BiomeMap) -> RiverMap {
             let biome = biomemap.data[idx];
 
             // Условия отрисовки: достаточно воды, не океан, не лед
-            if current_flow > flow_threshold && biome != Biome::Ocean && biome != Biome::Ice {
+            if current_flow > flow_threshold
+                && biome != Biome::Ocean
+                && biome != Biome::DeepOcean
+                && biome != Biome::IcyOcean
+                && biome != Biome::FrozenOcean
+                && biome != Biome::Ice
+            {
                 // Толщина: от 1 до 5 пикселей в зависимости от объема воды
                 let thickness = (1.0 + (current_flow / max_flow_thickness) * 4.0).min(5.0);
 

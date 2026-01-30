@@ -47,12 +47,14 @@ impl WorldType {
             WorldType::Supercontinent | WorldType::Mediterranean => TerrainSettings {
                 elevation_power: 0.65,
                 smooth_radius: 2,
-                mountain_compression: 0.8, // сильное сжатие гор
+                mountain_compression: 0.8,
+                total_provinces: 80,
             },
             WorldType::Archipelago => TerrainSettings {
                 elevation_power: 0.75,
                 smooth_radius: 1,
                 mountain_compression: 0.5,
+                total_provinces: 120,
             },
             _ => TerrainSettings::default(),
         }
@@ -135,6 +137,53 @@ impl Default for IslandSettings {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TerrainSettings {
+    /// Степень нелинейности высоты:
+    /// - <1.0 → сглаживает рельеф (меньше гор),
+    /// - =1.0 → линейно,
+    /// - >1.0 → усиливает рельеф.
+    #[serde(default = "default_elevation_power")]
+    pub elevation_power: f32,
+
+    #[serde(default = "default_smooth_radius")]
+    pub smooth_radius: usize,
+
+    /// Сжатие горных зон при назначении биомов:
+    /// - 0.0 = линейно,
+    /// - 1.0 = сильное сжатие (горы только на пиках).
+    #[serde(default = "default_mountain_compression")]
+    pub mountain_compression: f32,
+
+    /// Общее количество провинций (суша + море)
+    #[serde(default = "default_total_provinces")]
+    pub total_provinces: usize,
+}
+
+fn default_elevation_power() -> f32 {
+    0.8
+}
+fn default_smooth_radius() -> usize {
+    1
+}
+fn default_mountain_compression() -> f32 {
+    0.7
+}
+fn default_total_provinces() -> usize {
+    120
+}
+
+impl Default for TerrainSettings {
+    fn default() -> Self {
+        Self {
+            elevation_power: 0.8,
+            smooth_radius: 1,
+            mountain_compression: 0.7,
+            total_provinces: 120,
+        }
+    }
+}
+
 /// Основные параметры генерации мира
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldGenerationParams {
@@ -155,6 +204,7 @@ pub struct WorldGenerationParams {
     #[serde(default)]
     pub islands: IslandSettings,
 
+    /// Количество регионов (групп провинций)
     #[serde(default = "default_num_regions")]
     pub num_regions: usize,
 
@@ -181,7 +231,7 @@ fn default_height() -> u32 {
     1024
 }
 fn default_num_regions() -> usize {
-    100
+    12
 }
 fn default_sea_province_scale() -> f32 {
     2.5
@@ -196,49 +246,9 @@ impl Default for WorldGenerationParams {
             world_type: WorldType::EarthLike,
             climate: ClimateSettings::default(),
             islands: IslandSettings::default(),
-            num_regions: 100,
+            num_regions: 12,
             sea_province_scale: 2.5,
             terrain: TerrainSettings::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TerrainSettings {
-    /// Степень нелинейности высоты:
-    /// - <1.0 → сглаживает рельеф (меньше гор),
-    /// - =1.0 → линейно,
-    /// - >1.0 → усиливает рельеф.
-    #[serde(default = "default_elevation_power")]
-    pub elevation_power: f32,
-
-    /// Радиус сглаживания (0 = нет, 1 = 3×3, 2 = 5×5)
-    #[serde(default = "default_smooth_radius")]
-    pub smooth_radius: usize,
-
-    /// Сжатие горных зон при назначении биомов:
-    /// - 0.0 = линейно,
-    /// - 1.0 = сильное сжатие (горы только на пиках).
-    #[serde(default = "default_mountain_compression")]
-    pub mountain_compression: f32,
-}
-
-fn default_elevation_power() -> f32 {
-    0.8
-}
-fn default_smooth_radius() -> usize {
-    1
-}
-fn default_mountain_compression() -> f32 {
-    0.7
-}
-
-impl Default for TerrainSettings {
-    fn default() -> Self {
-        Self {
-            elevation_power: 0.8,
-            smooth_radius: 1,
-            mountain_compression: 0.7,
         }
     }
 }

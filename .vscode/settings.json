@@ -16,5 +16,17 @@
     "editor.formatOnSave": true,
     "files.insertFinalNewline": true
   },
-  "cSpell.words": ["Heightmap"]
+  "cSpell.words": [
+    "бесшовность",
+    "Финализация",
+    "chacha",
+    "Deque",
+    "Heightmap",
+    "mapgen",
+    "nidx",
+    "petgraph",
+    "pids",
+    "Seedable",
+    "voronoi"
+  ]
 }

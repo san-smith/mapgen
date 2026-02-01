@@ -1,3 +1,4 @@
+// src/bin/cli.rs
 use clap::Parser;
 use mapgen::{
     WorldGenerationParams,
@@ -6,6 +7,7 @@ use mapgen::{
     generate_heightmap,
     province::{
         generator::{generate_province_seeds, generate_provinces_from_seeds},
+        graph::build_province_graph_with_map,
         merge::merge_small_provinces,
         png::ProvinceMap,
         water::{WaterType, classify_water},
@@ -31,11 +33,23 @@ struct Cli {
     output: PathBuf,
 }
 
+#[derive(Serialize, Debug)]
+struct SerializableProvince {
+    id: u32,
+    color: String,
+    center: [f32; 2],
+    area: usize,
+    #[serde(rename = "type")]
+    province_type: mapgen::province::ProvinceType,
+    coastal: bool,
+    biomes: std::collections::HashMap<String, f32>,
+}
+
 #[derive(Serialize)]
-struct WorldData {
-    provinces: Vec<mapgen::province::Province>,
-    regions: Vec<mapgen::region::Region>,
-    strategic_points: Vec<mapgen::strategic::StrategicPoint>,
+struct SerializableRegion {
+    id: u32,
+    color: String,
+    province_ids: Vec<u32>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -96,6 +110,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let water_type = classify_water(&heightmap, sea_level);
     let river_map = generate_rivers(&heightmap, &biome_map);
 
+    println!("🖼️  Сохранение карты рек...");
+    river_map.save_as_png(cli.output.join("rivers.png").to_str().unwrap())?;
+
     let normals_path = cli.output.join("normals.png");
     println!("⛰️  Сохранение normals.png в {:?}", normals_path);
     heightmap.save_normals_as_png(normals_path.to_str().unwrap())?;
@@ -108,13 +125,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let total_provinces = terrain.total_provinces;
 
-    // Распределяем пропорционально реальной карте, но даем суше больший вес (например, 70% от total_provinces всегда выделяется под сушу)
     let land_priority_ratio = 0.7;
-
     let mut num_land = (total_provinces as f32 * land_priority_ratio).round() as usize;
     let mut num_sea = total_provinces - num_land;
 
-    // Гарантируем ненулевые значения
     if num_land == 0 {
         num_land = 1;
     }
@@ -122,13 +136,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         num_sea = 1;
     }
 
-    // Если на карте очень мало суши, корректируем пропорции
     if land_ratio < 0.3 {
         num_sea = (total_provinces as f32 * 0.5).round() as usize;
         num_land = total_provinces - num_sea;
     }
 
-    // 1. Генерируем семена для обеих типов поверхностей
     println!("🌱 Генерация семян провинций...");
     let seeds = generate_province_seeds(
         &heightmap,
@@ -139,45 +151,73 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         params.seed,
     );
 
-    // 2. Используем Flood Fill от семян (дает более выпуклые и равномерные провинции)
-    let mut all_provinces =
+    // 2. Генерация провинций + карта пикселей
+    let (mut all_provinces, pixel_to_id) =
         generate_provinces_from_seeds(&heightmap, &biome_map, &water_type, &seeds);
 
     // 3. Слияние мелких провинций
     println!("🔨 Объединение мелких провинций...");
     let mut graph =
-        mapgen::province::graph::build_province_graph(&all_provinces, params.width, params.height);
+        build_province_graph_with_map(&all_provinces, &pixel_to_id, params.width, params.height);
     merge_small_provinces(&mut all_provinces, &graph);
 
+    // После слияния перестраиваем pixel_to_id и граф
     graph =
-        mapgen::province::graph::build_province_graph(&all_provinces, params.width, params.height);
+        build_province_graph_with_map(&all_provinces, &pixel_to_id, params.width, params.height);
 
-    let province_map = ProvinceMap::new(params.width, params.height, &all_provinces);
-    province_map.save_as_png(cli.output.join("provinces.png").to_str().unwrap())?;
+    // 4. Сохранение провинций
+    println!("🖼️  Сохранение карты провинций...");
+    let province_map = ProvinceMap::from_pixel_map(params.width, params.height, &pixel_to_id);
+    province_map.save_as_png(
+        &all_provinces,
+        cli.output.join("provinces.png").to_str().unwrap(),
+    )?;
 
+    // 5. Группировка регионов
     println!("🧩 Группировка регионов...");
     let target_region_size = 8;
     let regions = group_provinces_into_regions(&all_provinces, &graph, target_region_size);
 
-    println!("🖼️  Сохранение регионов...");
-    let region_map = RegionMap::new(params.width, params.height, &all_provinces, &regions);
-    region_map.save_as_png(
-        cli.output.join("regions.png").to_str().unwrap(),
-        &regions,
-        &all_provinces,
-    )?;
+    // 6. Сохранение регионов
+    println!("🖼️  Сохранение карты регионов...");
+    let region_map = RegionMap::from_pixel_map(params.width, params.height, &pixel_to_id, &regions);
+    region_map.save_as_png(cli.output.join("regions.png").to_str().unwrap(), &regions)?;
 
+    // 7. Стратегические точки
     println!("🎯 Поиск стратегических точек...");
-    let strategic_points = find_strategic_points(&all_provinces, &river_map, &biome_map);
+    let strategic_points =
+        find_strategic_points(&all_provinces, &river_map, &biome_map, &pixel_to_id);
 
-    let world_data = WorldData {
-        provinces: all_provinces,
-        regions,
-        strategic_points,
-    };
+    // 8. Экспорт данных
+    println!("📦 Сохранение provinces.json...");
+    let serializable_provinces: Vec<SerializableProvince> = all_provinces
+        .into_iter()
+        .map(|p| SerializableProvince {
+            id: p.id,
+            color: p.color,
+            center: [p.center.0, p.center.1],
+            area: p.area,
+            province_type: p.province_type,
+            coastal: p.coastal,
+            biomes: p.biomes,
+        })
+        .collect();
 
-    let world_path = cli.output.join("world.toml");
-    fs::write(&world_path, toml::to_string_pretty(&world_data)?)?;
+    let provinces_json = serde_json::to_string_pretty(&serializable_provinces)?;
+    fs::write(cli.output.join("provinces.json"), provinces_json)?;
+
+    println!("📦 Сохранение regions.json...");
+    let serializable_regions: Vec<SerializableRegion> = regions
+        .into_iter()
+        .map(|r| SerializableRegion {
+            id: r.id,
+            color: r.color,
+            province_ids: r.province_ids,
+        })
+        .collect();
+
+    let regions_json = serde_json::to_string_pretty(&serializable_regions)?;
+    fs::write(cli.output.join("regions.json"), regions_json)?;
 
     println!("\n✅ Генерация завершена. Результаты в {:?}", cli.output);
     Ok(())

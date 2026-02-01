@@ -2,15 +2,28 @@
 use crate::biome::BiomeMap;
 use crate::heightmap::Heightmap;
 use crate::province::water::WaterType;
+use crate::province::{Province, ProvinceType};
 use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone)]
 pub struct ProvinceSeed {
     pub x: f32,
     pub y: f32,
     pub weight: f32,
-    pub is_land: bool, // Добавлено для четкого разделения при генерации
+    pub is_land: bool,
+}
+
+fn hash_to_color(id: u32) -> String {
+    let mut hasher = DefaultHasher::new();
+    id.hash(&mut hasher);
+    let hash = hasher.finish();
+    let r = ((hash >> 16) % 156) as u8 + 50; // 50..205
+    let g = ((hash >> 8) % 156) as u8 + 50;
+    let b = (hash % 156) as u8 + 50;
+    format!("#{:02x}{:02x}{:02x}", r, g, b)
 }
 
 pub fn generate_province_seeds(
@@ -27,7 +40,6 @@ pub fn generate_province_seeds(
 
     let mut candidates = Vec::new();
 
-    // Сбор кандидатов для суши
     for y in 0..height {
         for x in 0..width {
             let idx = y * width + x;
@@ -66,7 +78,6 @@ pub fn generate_province_seeds(
         }
     }
 
-    // Добавление морских семян
     let mut sea_points = Vec::new();
     for y in 0..height {
         for x in 0..width {
@@ -93,21 +104,22 @@ pub fn generate_province_seeds(
     selected
 }
 
+/// Возвращает (провинции, карта пикселей → province_id)
 pub fn generate_provinces_from_seeds(
     heightmap: &Heightmap,
     biome_map: &BiomeMap,
     water_type: &[WaterType],
     seeds: &[ProvinceSeed],
-) -> Vec<crate::province::Province> {
+) -> (Vec<Province>, Vec<u32>) {
     let width = heightmap.width as usize;
     let height = heightmap.height as usize;
     let total = width * height;
 
     let mut province_id_map: Vec<Option<u32>> = vec![None; total];
-    let mut provinces: Vec<crate::province::Province> = Vec::with_capacity(seeds.len());
+    let mut provinces: Vec<Province> = Vec::with_capacity(seeds.len());
     let mut queue = std::collections::VecDeque::new();
 
-    // ШАГ 1: Инициализация (и суша, и море)
+    // ШАГ 1: Инициализация
     for (pid, seed) in seeds.iter().enumerate() {
         let x = seed.x as usize;
         let y = seed.y as usize;
@@ -115,66 +127,92 @@ pub fn generate_provinces_from_seeds(
 
         if idx < total {
             province_id_map[idx] = Some(pid as u32);
-            provinces.push(crate::province::Province {
+            provinces.push(Province {
                 id: pid as u32,
                 name: format!("Prov_{}", pid),
+                province_type: if seed.is_land {
+                    ProvinceType::Continental
+                } else {
+                    ProvinceType::Oceanic
+                },
                 is_land: seed.is_land,
-                biome: None,
-                center: (seed.x, seed.y),
-                area: 1,
-                pixels: vec![(x as u32, y as u32)],
+                coastal: false,
+                center: (0.0, 0.0),
+                area: 0,
+                biomes: HashMap::new(),
+                color: hash_to_color(pid as u32),
             });
             queue.push_back((x, y, pid as u32));
         }
     }
 
-    // ШАГ 2: Flood Fill с проверкой типа поверхности
+    // ШАГ 2: Flood Fill с агрегацией данных
     const DIRECTIONS: [(i32, i32); 4] = [(0, 1), (1, 0), (0, -1), (-1, 0)];
 
     while let Some((x, y, pid)) = queue.pop_front() {
-        let is_land_province = provinces[pid as usize].is_land;
+        let province = &mut provinces[pid as usize];
 
+        // Агрегация данных
+        province.area += 1;
+        let biome_name = format!("{:?}", biome_map.data[y * width + x]);
+        *province.biomes.entry(biome_name).or_insert(0.0) += 1.0;
+        province.center.0 += x as f32;
+        province.center.1 += y as f32;
+
+        // Проверка прибрежности (только для суши)
+        if province.is_land {
+            for &(dx, dy) in &DIRECTIONS {
+                let nx = (x as i32 + dx).rem_euclid(width as i32) as usize;
+                let ny = (y as i32 + dy).clamp(0, (height - 1) as i32) as usize;
+                let nidx = ny * width + nx;
+                if water_type[nidx] != WaterType::Land {
+                    province.coastal = true;
+                    break;
+                }
+            }
+        }
+
+        // Добавление соседей
         for &(dx, dy) in &DIRECTIONS {
             let nx = (x as i32 + dx).rem_euclid(width as i32) as usize;
             let ny = (y as i32 + dy).clamp(0, (height - 1) as i32) as usize;
             let nidx = ny * width + nx;
 
             if province_id_map[nidx].is_none() {
-                let target_is_land = water_type[nidx] == WaterType::Land;
-
-                // Ключевое исправление: провинция растет только по своему типу поверхности
-                if is_land_province == target_is_land {
+                let neighbor_is_land = water_type[nidx] == WaterType::Land;
+                if province.is_land == neighbor_is_land {
                     province_id_map[nidx] = Some(pid);
-                    provinces[pid as usize].pixels.push((nx as u32, ny as u32));
-                    provinces[pid as usize].area += 1;
                     queue.push_back((nx, ny, pid));
                 }
             }
         }
     }
 
-    // ШАГ 3: Финализация (центры и биомы)
+    // ШАГ 3: Финализация
     for province in &mut provinces {
-        if province.pixels.is_empty() {
-            continue;
-        }
+        if province.area > 0 {
+            province.center.0 /= province.area as f32;
+            province.center.1 /= province.area as f32;
 
-        let sum_x: f32 = province.pixels.iter().map(|p| p.0 as f32).sum();
-        let sum_y: f32 = province.pixels.iter().map(|p| p.1 as f32).sum();
-        province.center = (sum_x / province.area as f32, sum_y / province.area as f32);
-
-        if province.is_land {
-            let mut biome_count = HashMap::new();
-            for &(px, py) in &province.pixels {
-                let idx = (py as usize) * width + (px as usize);
-                *biome_count.entry(biome_map.data[idx]).or_insert(0) += 1;
+            for count in province.biomes.values_mut() {
+                *count /= province.area as f32;
             }
-            province.biome = biome_count
-                .into_iter()
-                .max_by_key(|&(_, count)| count)
-                .map(|(b, _)| b);
+
+            province.province_type = if !province.is_land {
+                ProvinceType::Oceanic
+            } else if province.coastal && province.area < 500 {
+                ProvinceType::Island
+            } else {
+                ProvinceType::Continental
+            };
         }
     }
 
-    provinces
+    // Преобразуем карту в Vec<u32>
+    let pixel_to_id: Vec<u32> = province_id_map
+        .into_iter()
+        .map(|opt| opt.unwrap_or(u32::MAX))
+        .collect();
+
+    (provinces, pixel_to_id)
 }

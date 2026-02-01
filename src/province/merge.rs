@@ -16,14 +16,13 @@ pub fn merge_small_provinces(provinces: &mut Vec<Province>, graph: &UnGraph<u32,
             .map(|p| p.id);
 
         if let Some(small_id) = small_province_id {
-            // Функция теперь возвращает bool, а не Option<bool>
             if merge_one_small_province(provinces, graph, small_id) {
                 merged_count += 1;
             } else {
-                break; // Если слить не удалось (нет соседа), выходим из цикла поиска
+                break;
             }
         } else {
-            break; // Мелких провинций больше нет
+            break;
         }
     }
     println!("🧹 Слито {} мелких провинций.", merged_count);
@@ -34,7 +33,6 @@ fn merge_one_small_province(
     graph: &UnGraph<u32, ()>,
     small_id: u32,
 ) -> bool {
-    // Используем if let/match вместо оператора ?, чтобы не менять тип возврата на Option
     let small_idx = if let Some(idx) = provinces.iter().position(|p| p.id == small_id) {
         idx
     } else {
@@ -51,7 +49,6 @@ fn merge_one_small_province(
     let node_map: HashMap<u32, petgraph::graph::NodeIndex> =
         graph.node_indices().map(|idx| (graph[idx], idx)).collect();
 
-    // Также обрабатываем node_map.get явно, без '?'
     let small_node_idx = if let Some(&idx) = node_map.get(&small_id) {
         idx
     } else {
@@ -70,18 +67,51 @@ fn merge_one_small_province(
 
     if let Some(large_id) = largest_neighbor_id {
         let large_idx = prov_map[&large_id];
-        // Используем std::mem::take для эффективного перемещения вектора
-        let small_pixels = std::mem::take(&mut provinces[small_idx].pixels);
-        provinces[large_idx].pixels.extend(small_pixels);
-        provinces[large_idx].area = provinces[large_idx].pixels.len();
 
-        // Удаляем мелкую провинцию
-        provinces.remove(small_idx);
+        // Убедимся, что small_idx < large_idx для корректного split_at_mut
+        let (small_idx, large_idx) = if small_idx < large_idx {
+            (small_idx, large_idx)
+        } else {
+            (large_idx, small_idx)
+        };
 
-        // Граф должен быть перестроен в cli.rs после этой функции.
+        // Разделяем вектор на две части
+        let (left, right) = provinces.split_at_mut(large_idx);
+        let small_prov = &left[small_idx];
+        let large_prov = &mut right[0]; // large_idx теперь 0 в правой части
 
-        true // Успешно слили, возвращаем bool
+        let small_area = small_prov.area as f32;
+        let large_area = large_prov.area as f32;
+        let total_area = small_area + large_area;
+
+        // Обновляем центр (взвешенное среднее)
+        large_prov.center.0 =
+            (large_prov.center.0 * large_area + small_prov.center.0 * small_area) / total_area;
+        large_prov.center.1 =
+            (large_prov.center.1 * large_area + small_prov.center.1 * small_area) / total_area;
+
+        // Объединяем биомы
+        for (biome, &small_ratio) in &small_prov.biomes {
+            let large_ratio = large_prov.biomes.entry(biome.clone()).or_insert(0.0);
+            *large_ratio = (*large_ratio * large_area + small_ratio * small_area) / total_area;
+        }
+
+        // Обновляем площадь
+        large_prov.area = total_area as usize;
+
+        // Обновляем coastal
+        large_prov.coastal = large_prov.coastal || small_prov.coastal;
+
+        // Удаляем мелкую провинцию (индекс мог измениться из-за swap)
+        let actual_small_idx = if small_idx < large_idx {
+            small_idx
+        } else {
+            large_idx
+        };
+        provinces.remove(actual_small_idx);
+
+        true
     } else {
-        false // Не нашли подходящего соседа для слияния, возвращаем bool
+        false
     }
 }

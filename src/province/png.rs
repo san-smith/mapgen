@@ -1,6 +1,7 @@
+// src/province/png.rs
 use crate::province::Province;
 use image::{ImageBuffer, Rgba};
-use rand::Rng;
+use std::collections::HashMap;
 
 pub struct ProvinceMap {
     pub width: u32,
@@ -9,50 +10,56 @@ pub struct ProvinceMap {
 }
 
 impl ProvinceMap {
-    pub fn new(width: u32, height: u32, provinces: &[Province]) -> Self {
-        let mut data = vec![0; (width * height) as usize];
-        for province in provinces {
-            for &(x, y) in &province.pixels {
-                let idx = (y as usize) * (width as usize) + (x as usize);
-                if idx < data.len() {
-                    data[idx] = province.id;
-                }
-            }
-        }
+    /// Создаёт карту провинций из готовой карты пикселей → province_id
+    pub fn from_pixel_map(width: u32, height: u32, pixel_to_id: &[u32]) -> Self {
         Self {
             width,
             height,
-            data,
+            data: pixel_to_id.to_vec(),
         }
     }
 
-    pub fn to_rgba_image(&self) -> Vec<u8> {
-        let max_province = *self.data.iter().max().unwrap_or(&0) as usize;
-        let mut colors = vec![[0u8; 4]; max_province + 1];
-        colors[0] = [0, 0, 0, 255]; // фон (океан)
-
-        let mut rng = rand::thread_rng();
-        for i in 1..=max_province {
-            colors[i] = [
-                rng.gen_range(50..200),
-                rng.gen_range(50..200),
-                rng.gen_range(50..200),
-                255,
-            ];
+    /// Возвращает HEX-цвет для провинции по её ID
+    pub fn get_province_color(&self, provinces: &[Province], province_id: u32) -> String {
+        if let Some(province) = provinces.iter().find(|p| p.id == province_id) {
+            province.color.clone()
+        } else {
+            "#000000".to_string()
         }
+    }
+
+    pub fn to_rgba_image(&self, provinces: &[Province]) -> Vec<u8> {
+        // Создаём маппинг ID → цвет
+        let mut color_map: HashMap<u32, [u8; 4]> = HashMap::new();
+
+        // Добавляем цвета для всех провинций
+        for province in provinces {
+            let hex = &province.color[1..]; // убираем '#'
+            if let (Ok(r), Ok(g), Ok(b)) = (
+                u8::from_str_radix(&hex[0..2], 16),
+                u8::from_str_radix(&hex[2..4], 16),
+                u8::from_str_radix(&hex[4..6], 16),
+            ) {
+                color_map.insert(province.id, [r, g, b, 255]);
+            }
+        }
+
+        // Цвет по умолчанию для неотнесённых пикселей
+        let default_color = [0, 0, 0, 255];
 
         self.data
             .iter()
-            .flat_map(|&pid| {
-                let c = colors[pid as usize];
-                [c[0], c[1], c[2], c[3]]
-            })
+            .flat_map(|&pid| color_map.get(&pid).copied().unwrap_or(default_color))
             .collect()
     }
 
-    pub fn save_as_png(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save_as_png(
+        &self,
+        provinces: &[Province],
+        path: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let img: ImageBuffer<Rgba<u8>, Vec<u8>> =
-            ImageBuffer::from_raw(self.width, self.height, self.to_rgba_image())
+            ImageBuffer::from_raw(self.width, self.height, self.to_rgba_image(provinces))
                 .ok_or("Failed to create image buffer")?;
         img.save(path)?;
         Ok(())

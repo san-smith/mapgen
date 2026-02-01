@@ -1,8 +1,8 @@
-use serde::Serialize;
-
-use crate::biome::Biome;
+// src/strategic.rs
+use crate::biome::BiomeMap;
 use crate::province::Province;
 use crate::rivers::RiverMap;
+use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
 pub enum StrategicPoint {
@@ -15,48 +15,57 @@ pub enum StrategicPoint {
 pub fn find_strategic_points(
     provinces: &[Province],
     river_map: &RiverMap,
-    biome_map: &crate::biome::BiomeMap,
+    biome_map: &BiomeMap,
+    pixel_to_id: &[u32], // Новый аргумент: карта пикселей → province_id
 ) -> Vec<StrategicPoint> {
     let mut points = Vec::new();
+    let width = biome_map.width as usize;
+    let height = biome_map.height as usize;
+
+    // Создаём обратную мапу: province_id → индекс в provinces
 
     for province in provinces {
-        if province.is_land {
-            let mut has_coast = false;
-            let mut has_river = false;
-            let mut has_mountain = false;
+        if !province.is_land {
+            continue;
+        }
 
-            for &(x, y) in &province.pixels {
-                let idx = (y as usize) * (biome_map.width as usize) + (x as usize);
-                if biome_map.data[idx] == Biome::DeepOcean
-                    || biome_map.data[idx] == Biome::Ocean
-                    || biome_map.data[idx] == Biome::IcyOcean
-                    || biome_map.data[idx] == Biome::FrozenOcean
-                {
-                    has_coast = true;
+        let mut has_river = false;
+        let mut has_mountain = false;
+
+        // Проверяем все пиксели карты
+        for y in 0..height {
+            for x in 0..width {
+                let idx = y * width + x;
+                if pixel_to_id[idx] != province.id {
+                    continue;
                 }
+
+                // Проверка реки
                 if river_map.data[idx] > 0 {
                     has_river = true;
                 }
-                if province.biome == Some(Biome::RockyMountain)
-                    || province.biome == Some(Biome::GlacialMountain)
-                {
+
+                // Проверка гор через биомы
+                let biome_name = format!("{:?}", biome_map.data[idx]);
+                if biome_name == "RockyMountain" || biome_name == "GlacialMountain" {
                     has_mountain = true;
                 }
             }
+        }
 
-            if has_coast && has_river {
-                points.push(StrategicPoint::Estuary {
-                    province_id: province.id,
-                });
-            } else if has_coast {
-                points.push(StrategicPoint::Port {
-                    province_id: province.id,
-                });
-            } else if has_mountain {
-                points.push(StrategicPoint::Pass {
-                    province_id: province.id,
-                });
-            }
+        // Определяем тип стратегической точки
+        if province.coastal && has_river {
+            points.push(StrategicPoint::Estuary {
+                province_id: province.id,
+            });
+        } else if province.coastal {
+            points.push(StrategicPoint::Port {
+                province_id: province.id,
+            });
+        } else if has_mountain {
+            points.push(StrategicPoint::Pass {
+                province_id: province.id,
+            });
         }
     }
 

@@ -12,6 +12,10 @@ crate-type = ["cdylib", "rlib"]  # для GDExtension + обычной библ�
 name = "mapgen-cli"
 path = "src/bin/cli.rs"
 
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
+
 [dependencies]
 # Сериализация
 serde = { version = "1.0", features = ["derive"] }

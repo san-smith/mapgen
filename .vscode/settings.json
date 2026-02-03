@@ -8,6 +8,7 @@
   },
   "files.trimTrailingWhitespace": true,
   "files.trimFinalNewlines": true,
+  "rust-analyzer.check.command": "clippy",
   "[markdown]": {
     "editor.formatOnSave": true,
     "files.insertFinalNewline": true

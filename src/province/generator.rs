@@ -208,10 +208,39 @@ pub fn generate_provinces_from_seeds(
         }
     }
 
+    // ШАГ 4: Заполнение оставшихся пикселей
+    println!(
+        "🔍 Заполнение {} непокрытых пикселей...",
+        province_id_map.iter().filter(|o| o.is_none()).count()
+    );
+
+    // Собираем центры всех провинций
+    let centers: Vec<(f32, f32)> = provinces.iter().map(|p| p.center).collect();
+
+    for y in 0..height {
+        for x in 0..width {
+            let idx = y * width + x;
+            if province_id_map[idx].is_none() {
+                let mut min_d2 = f32::MAX;
+                let mut best_pid = 0;
+                for (pid, &(cx, cy)) in centers.iter().enumerate() {
+                    let d2 = (x as f32 - cx).powi(2) + (y as f32 - cy).powi(2);
+                    if d2 < min_d2 {
+                        min_d2 = d2;
+                        best_pid = pid as u32;
+                    }
+                }
+                province_id_map[idx] = Some(best_pid);
+                // Обновляем данные провинции
+                provinces[best_pid as usize].area += 1;
+            }
+        }
+    }
+
     // Преобразуем карту в Vec<u32>
     let pixel_to_id: Vec<u32> = province_id_map
         .into_iter()
-        .map(|opt| opt.unwrap_or(u32::MAX))
+        .map(|opt| opt.unwrap())
         .collect();
 
     (provinces, pixel_to_id)

@@ -13,6 +13,7 @@ pub struct Heightmap {
 }
 
 impl Heightmap {
+    #[must_use]
     pub fn new(width: u32, height: u32) -> Self {
         Self {
             width,
@@ -21,6 +22,7 @@ impl Heightmap {
         }
     }
 
+    #[must_use]
     pub fn get(&self, x: u32, y: u32) -> f32 {
         self.data[(y * self.width + x) as usize]
     }
@@ -29,6 +31,7 @@ impl Heightmap {
         self.data[(y * self.width + x) as usize] = value;
     }
 
+    #[must_use]
     pub fn to_grayscale_image(&self) -> Vec<u8> {
         self.data
             .par_iter()
@@ -156,6 +159,7 @@ impl Heightmap {
     }
 
     /// Генерирует карту нормалей из карты высот
+    #[must_use]
     pub fn generate_normals(&self) -> Vec<[u8; 3]> {
         let width = self.width as usize;
         let height = self.height as usize;
@@ -168,11 +172,11 @@ impl Heightmap {
             for x in 0..width {
                 // Градиент по X (разница между соседями по широте)
                 let left = self.get(
-                    ((x as i32 - 1).rem_euclid(self.width as i32)) as u32,
+                    ((x as i32 - 1).rem_euclid(self.width.cast_signed())) as u32,
                     y as u32,
                 );
                 let right = self.get(
-                    ((x as i32 + 1).rem_euclid(self.width as i32)) as u32,
+                    ((x as i32 + 1).rem_euclid(self.width.cast_signed())) as u32,
                     y as u32,
                 );
                 let dx = (right - left) * height_scale;
@@ -226,6 +230,7 @@ impl Heightmap {
 }
 
 /// Генерирует карту высот с бесшовностью по долготе и нелинейной коррекцией
+#[must_use]
 pub fn generate_heightmap(
     seed: u64,
     width: u32,
@@ -299,7 +304,7 @@ pub fn generate_heightmap(
             let island_val = (iv + 1.0) * 0.5;
 
             // Мягкое наложение: острова сильнее проявляются в низинах
-            *h = *h + island_val * island_density * 0.25;
+            *h += island_val * island_density * 0.25;
         });
     }
 
@@ -366,7 +371,7 @@ pub fn generate_heightmap(
 }
 
 /// Сглаживание через среднее (3×3, 5×5 и т.д.)
-pub fn smooth_heightmap(data: &mut Vec<f32>, width: usize, height: usize, radius: usize) {
+pub fn smooth_heightmap(data: &mut [f32], width: usize, height: usize, radius: usize) {
     if radius == 0 || radius >= width || radius >= height {
         return;
     }

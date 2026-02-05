@@ -9,6 +9,8 @@ pub struct ClimateMaps {
 }
 
 /// Генерирует карты температуры и влажности
+#[allow(clippy::too_many_arguments)]
+#[must_use]
 pub fn generate_climate_maps(
     seed: u64,
     width: u32,
@@ -65,6 +67,7 @@ pub fn generate_climate_maps(
     (temperatures, winds)
 }
 
+#[must_use]
 pub fn calculate_humidity(
     width: u32,
     height: u32,
@@ -74,7 +77,7 @@ pub fn calculate_humidity(
     global_humidity_offset: f32,
 ) -> Vec<f32> {
     let mut humidity = vec![0.0; (width * height) as usize];
-    let width_i = width as i32;
+    let width_i = width.cast_signed();
 
     for y in 0..height {
         let row_start = (y * width) as usize;

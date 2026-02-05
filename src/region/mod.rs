@@ -22,9 +22,11 @@ fn hash_region_color(region_id: u32) -> String {
     let r = ((hash >> 16) % 156) as u8 + 50;
     let g = ((hash >> 8) % 156) as u8 + 50;
     let b = (hash % 156) as u8 + 50;
-    format!("#{:02x}{:02x}{:02x}", r, g, b)
+    format!("#{r:02x}{g:02x}{b:02x}")
 }
 
+#[allow(clippy::missing_panics_doc)]
+#[must_use]
 pub fn group_provinces_into_regions(
     provinces: &[crate::province::Province],
     graph: &petgraph::graph::UnGraph<u32, ()>,
@@ -56,16 +58,15 @@ pub fn group_provinces_into_regions(
             if let Some(&node_idx) = node_map.get(&curr_id) {
                 for neighbor_idx in graph.neighbors(node_idx) {
                     let n_id = graph[neighbor_idx];
-                    if !assigned.contains(&n_id) {
-                        if let Some(n_prov) = prov_map.get(&n_id) {
-                            if n_prov.is_land == is_land_reg {
-                                assigned.insert(n_id);
-                                reg_pids.push(n_id);
-                                queue.push_back(n_id);
-                                if reg_pids.len() >= target_size {
-                                    break;
-                                }
-                            }
+                    if !assigned.contains(&n_id)
+                        && let Some(n_prov) = prov_map.get(&n_id)
+                        && n_prov.is_land == is_land_reg
+                    {
+                        assigned.insert(n_id);
+                        reg_pids.push(n_id);
+                        queue.push_back(n_id);
+                        if reg_pids.len() >= target_size {
+                            break;
                         }
                     }
                 }

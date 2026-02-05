@@ -7,8 +7,9 @@ use std::collections::{HashMap, HashSet};
 ///
 /// # Аргументы
 /// * `provinces` — список провинций,
-/// * `pixel_to_id` — карта пикселей → province_id (размер: width × height),
+/// * `pixel_to_id` — карта пикселей → `province_id` (размер: width × height),
 /// * `width`, `height` — размеры карты.
+#[must_use]
 pub fn build_province_graph_with_map(
     provinces: &[Province],
     pixel_to_id: &[u32],
@@ -39,8 +40,8 @@ pub fn build_province_graph_with_map(
 
             // Проверяем соседей
             for &(dx, dy) in &directions {
-                let nx = (x as i32 + dx).rem_euclid(width as i32) as u32;
-                let ny = (y as i32 + dy).clamp(0, height as i32 - 1) as u32;
+                let nx = (x.cast_signed() + dx).rem_euclid(width.cast_signed()) as u32;
+                let ny = (y.cast_signed() + dy).clamp(0, height.cast_signed() - 1) as u32;
                 let nidx = (ny * width + nx) as usize;
                 let neighbor_id = pixel_to_id[nidx];
 
@@ -57,11 +58,10 @@ pub fn build_province_graph_with_map(
                 };
 
                 // Добавляем ребро, если его ещё нет
-                if edges.insert((a, b)) {
-                    if let (Some(&node_a), Some(&node_b)) = (id_to_node.get(&a), id_to_node.get(&b))
-                    {
-                        graph.add_edge(node_a, node_b, ());
-                    }
+                if edges.insert((a, b))
+                    && let (Some(&node_a), Some(&node_b)) = (id_to_node.get(&a), id_to_node.get(&b))
+                {
+                    graph.add_edge(node_a, node_b, ());
                 }
             }
         }

@@ -52,6 +52,7 @@ struct SerializableRegion {
     province_ids: Vec<u32>,
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
@@ -65,10 +66,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "🌍 Генерация карты высот (размер: {}×{})...",
         params.width, params.height
     );
-    let terrain = if params.terrain != mapgen::config::TerrainSettings::default() {
-        params.terrain.clone()
-    } else {
+    let terrain = if params.terrain == mapgen::config::TerrainSettings::default() {
         params.world_type.default_terrain()
+    } else {
+        params.terrain.clone()
     };
 
     let heightmap = generate_heightmap(
@@ -114,7 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     river_map.save_as_png(cli.output.join("rivers.png").to_str().unwrap())?;
 
     let normals_path = cli.output.join("normals.png");
-    println!("⛰️  Сохранение normals.png в {:?}", normals_path);
+    println!("⛰️  Сохранение normals.png в {:?}", normals_path.display());
     heightmap.save_normals_as_png(normals_path.to_str().unwrap())?;
 
     println!("🗺️  Генерация провинций...");
@@ -185,7 +186,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 7. Стратегические точки
     println!("🎯 Поиск стратегических точек...");
-    let strategic_points =
+    let _strategic_points =
         find_strategic_points(&all_provinces, &river_map, &biome_map, &pixel_to_id);
 
     // 8. Экспорт данных
@@ -219,6 +220,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let regions_json = serde_json::to_string_pretty(&serializable_regions)?;
     fs::write(cli.output.join("regions.json"), regions_json)?;
 
-    println!("\n✅ Генерация завершена. Результаты в {:?}", cli.output);
+    println!(
+        "\n✅ Генерация завершена. Результаты в {:?}",
+        cli.output.display()
+    );
     Ok(())
 }

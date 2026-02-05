@@ -8,6 +8,10 @@ pub enum WaterType {
     Land,
 }
 
+const DIRECTIONS: [(i32, i32); 4] = [(0, 1), (1, 0), (0, -1), (-1, 0)];
+
+#[allow(clippy::needless_range_loop)]
+#[must_use]
 pub fn classify_water(heightmap: &Heightmap, sea_level: f32) -> Vec<WaterType> {
     let width = heightmap.width as usize;
     let height = heightmap.height as usize;
@@ -44,11 +48,10 @@ pub fn classify_water(heightmap: &Heightmap, sea_level: f32) -> Vec<WaterType> {
     }
 
     // BFS от краёв
-    const DIRECTIONS: [(i32, i32); 4] = [(0, 1), (1, 0), (0, -1), (-1, 0)];
     while let Some((x, y)) = queue.pop_front() {
         for &(dx, dy) in &DIRECTIONS {
             let nx = (x + dx).rem_euclid(width as i32);
-            let ny = (y as i32 + dy).clamp(0, height as i32 - 1) as usize;
+            let ny = (y + dy).clamp(0, height as i32 - 1) as usize;
             let nidx = ny * width + nx as usize;
 
             if !visited[nidx] && heightmap.data[nidx] < sea_level {

@@ -12,6 +12,7 @@ pub enum StrategicPoint {
     Strait { province_id: u32 },
 }
 
+#[must_use]
 pub fn find_strategic_points(
     provinces: &[Province],
     river_map: &RiverMap,

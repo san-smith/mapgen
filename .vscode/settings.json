@@ -18,16 +18,31 @@
     "files.insertFinalNewline": true
   },
   "cSpell.words": [
+    "бесшовности",
     "бесшовность",
+    "бесшовностью",
+    "геймплея",
+    "играбельной",
+    "мапу",
+    "неотнесённых",
+    "прибрежности",
     "Финализация",
+    "cdylib",
     "chacha",
+    "clippy",
     "Deque",
+    "fastnoise",
     "Heightmap",
+    "imageproc",
+    "Luma",
     "mapgen",
     "nidx",
     "petgraph",
     "pids",
+    "rlib",
     "Seedable",
+    "serde",
+    "Shrubland",
     "voronoi"
   ]
 }

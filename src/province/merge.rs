@@ -25,7 +25,7 @@ pub fn merge_small_provinces(provinces: &mut Vec<Province>, graph: &UnGraph<u32,
             break;
         }
     }
-    println!("🧹 Слито {} мелких провинций.", merged_count);
+    println!("🧹 Слито {merged_count} мелких провинций.");
 }
 
 fn merge_one_small_province(
@@ -33,9 +33,7 @@ fn merge_one_small_province(
     graph: &UnGraph<u32, ()>,
     small_id: u32,
 ) -> bool {
-    let small_idx = if let Some(idx) = provinces.iter().position(|p| p.id == small_id) {
-        idx
-    } else {
+    let Some(small_idx) = provinces.iter().position(|p| p.id == small_id) else {
         return false;
     };
 
@@ -49,9 +47,7 @@ fn merge_one_small_province(
     let node_map: HashMap<u32, petgraph::graph::NodeIndex> =
         graph.node_indices().map(|idx| (graph[idx], idx)).collect();
 
-    let small_node_idx = if let Some(&idx) = node_map.get(&small_id) {
-        idx
-    } else {
+    let Some(&small_node_idx) = node_map.get(&small_id) else {
         return false;
     };
 

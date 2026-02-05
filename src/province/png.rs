@@ -10,7 +10,8 @@ pub struct ProvinceMap {
 }
 
 impl ProvinceMap {
-    /// Создаёт карту провинций из готовой карты пикселей → province_id
+    /// Создаёт карту провинций из готовой карты пикселей → `province_id`
+    #[must_use]
     pub fn from_pixel_map(width: u32, height: u32, pixel_to_id: &[u32]) -> Self {
         Self {
             width,
@@ -20,6 +21,7 @@ impl ProvinceMap {
     }
 
     /// Возвращает HEX-цвет для провинции по её ID
+    #[must_use]
     pub fn get_province_color(&self, provinces: &[Province], province_id: u32) -> String {
         if let Some(province) = provinces.iter().find(|p| p.id == province_id) {
             province.color.clone()
@@ -28,6 +30,7 @@ impl ProvinceMap {
         }
     }
 
+    #[must_use]
     pub fn to_rgba_image(&self, provinces: &[Province]) -> Vec<u8> {
         // Создаём маппинг ID → цвет
         let mut color_map: HashMap<u32, [u8; 4]> = HashMap::new();

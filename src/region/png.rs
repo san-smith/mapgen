@@ -11,7 +11,8 @@ pub struct RegionMap {
 }
 
 impl RegionMap {
-    /// Создаёт карту регионов из готовой карты пикселей → province_id
+    /// Создаёт карту регионов из готовой карты пикселей → `province_id`
+    #[must_use]
     pub fn from_pixel_map(
         width: u32,
         height: u32,
@@ -45,6 +46,7 @@ impl RegionMap {
         }
     }
 
+    #[must_use]
     pub fn to_rgba_image(&self, regions: &[Region]) -> Vec<u8> {
         let mut colors = HashMap::new();
 

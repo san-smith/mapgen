@@ -33,6 +33,7 @@ pub enum Biome {
 }
 
 impl Biome {
+    #[must_use]
     pub fn to_rgb(&self) -> [u8; 3] {
         match self {
             // === ВОДА (чётко различимые) ===
@@ -58,13 +59,12 @@ impl Biome {
     }
 
     /// Стоимость перемещения (для геймплея)
+    #[must_use]
     pub fn movement_cost(&self) -> f32 {
         match self {
-            Biome::Ocean => 1.0,
             Biome::DeepOcean => 1.5,
-            Biome::IcyOcean => 2.0,
+            Biome::IcyOcean | Biome::Swamp => 2.0,
             Biome::FrozenOcean => 3.0,
-            Biome::Swamp => 2.0,
             Biome::RockyMountain => 4.0,
             Biome::GlacialMountain => f32::INFINITY, // Непроходимы
             _ => 1.0,
@@ -80,6 +80,7 @@ pub struct BiomeMap {
 }
 
 /// Назначает биомы на основе высоты, температуры и влажности
+#[must_use]
 pub fn assign_biomes(
     heightmap: &crate::heightmap::Heightmap,
     temperature: &[f32],
@@ -122,16 +123,16 @@ pub fn assign_biomes(
                     // Если наверху холодно, это всегда GlacialMountain
                     if temp < 0.3 {
                         return Biome::GlacialMountain;
-                    } else {
-                        return Biome::RockyMountain;
                     }
+
+                    return Biome::RockyMountain;
                 } else if elevation > MOUNTAIN_START {
                     // Если на средней высоте холодно, это GlacialMountain, иначе RockyMountain
                     if temp < 0.25 {
                         return Biome::GlacialMountain;
-                    } else {
-                        return Biome::RockyMountain;
                     }
+
+                    return Biome::RockyMountain;
                 }
 
                 // ПРИОРИТЕТ 2: Затем используем климат
@@ -156,14 +157,12 @@ pub fn assign_biomes(
                     } else {
                         Biome::Swamp
                     }
+                } else if humid < 0.25 + dither {
+                    Biome::Desert
+                } else if humid < 0.55 + dither {
+                    Biome::Savanna
                 } else {
-                    if humid < 0.25 + dither {
-                        Biome::Desert
-                    } else if humid < 0.55 + dither {
-                        Biome::Savanna
-                    } else {
-                        Biome::TropicalRainforest
-                    }
+                    Biome::TropicalRainforest
                 }
             }
         })
@@ -177,6 +176,7 @@ pub fn assign_biomes(
 }
 
 impl BiomeMap {
+    #[must_use]
     pub fn to_rgba_image(&self) -> Vec<u8> {
         self.data
             .par_iter()

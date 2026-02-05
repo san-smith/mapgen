@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+const DIRECTIONS: [(i32, i32); 4] = [(0, 1), (1, 0), (0, -1), (-1, 0)];
+
 #[derive(Debug, Clone)]
 pub struct ProvinceSeed {
     pub x: f32,
@@ -23,9 +25,10 @@ fn hash_to_color(id: u32) -> String {
     let r = ((hash >> 16) % 156) as u8 + 50; // 50..205
     let g = ((hash >> 8) % 156) as u8 + 50;
     let b = (hash % 156) as u8 + 50;
-    format!("#{:02x}{:02x}{:02x}", r, g, b)
+    format!("#{r:02x}{g:02x}{b:02x}")
 }
 
+#[must_use]
 pub fn generate_province_seeds(
     heightmap: &Heightmap,
     biome_map: &BiomeMap,
@@ -104,7 +107,10 @@ pub fn generate_province_seeds(
     selected
 }
 
-/// Возвращает (провинции, карта пикселей → province_id)
+/// Возвращает (провинции, карта пикселей → `province_id`)
+#[allow(clippy::too_many_lines)]
+#[allow(clippy::missing_panics_doc)]
+#[must_use]
 pub fn generate_provinces_from_seeds(
     heightmap: &Heightmap,
     biome_map: &BiomeMap,
@@ -129,7 +135,7 @@ pub fn generate_provinces_from_seeds(
             province_id_map[idx] = Some(pid as u32);
             provinces.push(Province {
                 id: pid as u32,
-                name: format!("Prov_{}", pid),
+                name: format!("Prov_{pid}"),
                 province_type: if seed.is_land {
                     ProvinceType::Continental
                 } else {
@@ -147,8 +153,6 @@ pub fn generate_provinces_from_seeds(
     }
 
     // ШАГ 2: Flood Fill с агрегацией данных
-    const DIRECTIONS: [(i32, i32); 4] = [(0, 1), (1, 0), (0, -1), (-1, 0)];
-
     while let Some((x, y, pid)) = queue.pop_front() {
         let province = &mut provinces[pid as usize];
 

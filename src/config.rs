@@ -2,8 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 
 /// Тип генерируемого мира
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 pub enum WorldType {
+    #[default]
     EarthLike,
     Supercontinent,
     Archipelago,
@@ -14,6 +15,7 @@ pub enum WorldType {
 
 impl WorldType {
     /// Целевая доля суши (0.0 = всё море, 1.0 = вся суша)
+    #[must_use]
     pub fn target_land_ratio(self) -> f32 {
         match self {
             WorldType::EarthLike => 0.30,
@@ -25,6 +27,7 @@ impl WorldType {
         }
     }
 
+    #[must_use]
     pub fn default_climate(&self) -> ClimateSettings {
         match self {
             WorldType::IceAgeEarth => ClimateSettings {
@@ -42,6 +45,7 @@ impl WorldType {
         }
     }
 
+    #[must_use]
     pub fn default_terrain(&self) -> TerrainSettings {
         match self {
             WorldType::Supercontinent | WorldType::Mediterranean => TerrainSettings {
@@ -58,12 +62,6 @@ impl WorldType {
             },
             _ => TerrainSettings::default(),
         }
-    }
-}
-
-impl Default for WorldType {
-    fn default() -> Self {
-        WorldType::EarthLike
     }
 }
 

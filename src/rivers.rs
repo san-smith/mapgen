@@ -9,7 +9,19 @@ pub struct RiverMap {
     pub data: Vec<u8>,
 }
 
-pub fn generate_rivers(heightmap: &Heightmap, biomemap: &BiomeMap) -> RiverMap {
+const DIRECTIONS: [(i32, i32); 8] = [
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+    (-1, 0),
+    (1, 0),
+    (-1, 1),
+    (0, 1),
+    (1, 1),
+];
+
+#[must_use]
+pub fn generate_rivers(heightmap: &Heightmap, biome_map: &BiomeMap) -> RiverMap {
     let width = heightmap.width as usize;
     let height = heightmap.height as usize;
 
@@ -24,19 +36,8 @@ pub fn generate_rivers(heightmap: &Heightmap, biomemap: &BiomeMap) -> RiverMap {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    const DIRECTIONS: [(i32, i32); 8] = [
-        (-1, -1),
-        (0, -1),
-        (1, -1),
-        (-1, 0),
-        (1, 0),
-        (-1, 1),
-        (0, 1),
-        (1, 1),
-    ];
-
     for &idx in &indices {
-        let biome = biomemap.data[idx];
+        let biome = biome_map.data[idx];
 
         // Реки не текут во льдах и не начинаются в пустынях
         if biome == Biome::Ice
@@ -86,7 +87,7 @@ pub fn generate_rivers(heightmap: &Heightmap, biomemap: &BiomeMap) -> RiverMap {
         for x in 0..width {
             let idx = y * width + x;
             let current_flow = flow[idx];
-            let biome = biomemap.data[idx];
+            let biome = biome_map.data[idx];
 
             // Условия отрисовки: достаточно воды, не океан, не лед
             if current_flow > flow_threshold

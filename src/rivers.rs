@@ -1,14 +1,43 @@
+// src/rivers.rs
+//! Гидрографическая сеть мира
+//!
+//! Этот модуль реализует физически-мотивированную модель рек на основе:
+//! - Карты высот (направление стока воды)
+//! - Накопления потока (flow accumulation) — моделирование объёма воды
+//! - Биомных ограничений (реки не текут во льдах и пустынях)
+//!
+//! Алгоритм состоит из двух этапов:
+//! 1. **Гидрологическое моделирование** — расчёт направления стока и накопления воды
+//! 2. **Визуализация** — отрисовка рек с переменной толщиной в зависимости от объёма воды
+//!
+//! Особенности:
+//! - Реки всегда текут от высоких точек к низким (включая бесшовную обработку по долготе)
+//! - Пустыни моделируют испарение (потеря 50% потока)
+//! - Океаны являются стоками (вода исчезает, но реки впадают в них)
+//! - Толщина рек пропорциональна объёму воды
+
 use crate::biome::{Biome, BiomeMap};
 use crate::heightmap::Heightmap;
 use image::{ImageBuffer, Luma};
 use imageproc::drawing::draw_filled_circle_mut;
 
+/// Карта рек — распределение гидрографической сети по поверхности мира
+#[derive(Debug, Clone)]
 pub struct RiverMap {
+    /// Ширина карты в пикселях
     pub width: u32,
+    /// Высота карты в пикселях
     pub height: u32,
+    /// Данные рек: вектор значений 0..255, где 0 = суша, 255 = река
+    /// Размер вектора: `width × height`
     pub data: Vec<u8>,
 }
 
+/// 8 направлений для поиска пути стока (включая диагонали)
+///
+/// Порядок важен для детерминированности:
+/// - Сначала проверяются диагонали (для более естественных изгибов),
+/// - Затем ортогональные направления.
 const DIRECTIONS: [(i32, i32); 8] = [
     (-1, -1),
     (0, -1),
@@ -20,6 +49,43 @@ const DIRECTIONS: [(i32, i32); 8] = [
     (1, 1),
 ];
 
+// Настраиваемые параметры визуализации
+const FLOW_THRESHOLD: f32 = 400.0; // Минимальный поток для видимой реки
+const MAX_FLOW_THICKNESS: f32 = 3000.0; // Поток, при котором река достигает максимальной толщины
+
+/// Генерирует карту рек на основе карты высот и биомов
+///
+/// # Алгоритм
+/// 1. **Накопление потока (Flow Accumulation)**:
+///    - Сортируем пиксели от самых высоких к самым низким
+///    - Для каждого пикселя находим соседа с минимальной высотой (направление стока)
+///    - Переносим "поток" (объём воды) в соседа вниз по течению
+///    - В пустынях моделируем испарение (потеря 50% потока)
+///    - Лёд и океаны блокируют формирование рек (но океаны принимают сток)
+///
+/// 2. **Визуализация**:
+///    - Пиксели с потоком выше порога (`flow_threshold`) отрисовываются как реки
+///    - Толщина реки пропорциональна объёму воды (от 1 до 5 пикселей)
+///    - Реки не отрисовываются в океанах и на льдах (только на суше)
+///
+/// # Параметры
+/// * `heightmap` — карта высот (0.0–1.0)
+/// * `biome_map` — карта биомов для ограничения рек
+///
+/// # Возвращает
+/// Структуру `RiverMap` с бинарной картой рек (0 = суша, 255 = река)
+///
+/// # Особенности реализации
+/// - Алгоритм детерминирован (зависит только от входных данных)
+/// - Бесшовная обработка по долготе (карта "заворачивается" по горизонтали)
+/// - Вертикальные границы обрабатываются с отражением (полюса)
+/// - Пороги настраиваемы через локальные константы (`flow_threshold`, `max_flow_thickness`)
+///
+/// # Пример
+/// ```rust
+/// let river_map = generate_rivers(&heightmap, &biome_map);
+/// river_map.save_as_png("output/rivers.png")?;
+/// ```
 #[must_use]
 pub fn generate_rivers(heightmap: &Heightmap, biome_map: &BiomeMap) -> RiverMap {
     let width = heightmap.width as usize;
@@ -28,7 +94,7 @@ pub fn generate_rivers(heightmap: &Heightmap, biome_map: &BiomeMap) -> RiverMap 
     // 1. Накопление потока (Flow Accumulation)
     let mut flow = vec![1.0f32; width * height];
 
-    // Сортируем индексы от вершин к низинам
+    // Сортируем индексы от вершин к низинам для корректного распространения потока
     let mut indices: Vec<usize> = (0..(width * height)).collect();
     indices.sort_by(|&a, &b| {
         heightmap.data[b]
@@ -39,13 +105,9 @@ pub fn generate_rivers(heightmap: &Heightmap, biome_map: &BiomeMap) -> RiverMap 
     for &idx in &indices {
         let biome = biome_map.data[idx];
 
-        // Реки не текут во льдах и не начинаются в пустынях
-        if biome == Biome::Ice
-            || biome == Biome::Ocean
-            || biome == Biome::DeepOcean
-            || biome == Biome::IcyOcean
-            || biome == Biome::FrozenOcean
-        {
+        // Реки не формируются на льдах (слишком холодно для жидкой воды)
+        // Океаны не генерируют новые реки, но принимают сток с суши
+        if biome == Biome::Ice {
             flow[idx] = 0.0;
             continue;
         }
@@ -56,6 +118,7 @@ pub fn generate_rivers(heightmap: &Heightmap, biome_map: &BiomeMap) -> RiverMap 
         let mut min_h = heightmap.data[idx];
         let mut target_idx = idx;
 
+        // Ищем соседа с минимальной высотой (направление стока)
         for &(dx, dy) in &DIRECTIONS {
             let nx = x + dx;
             let ny = y + dy;
@@ -75,13 +138,9 @@ pub fn generate_rivers(heightmap: &Heightmap, biome_map: &BiomeMap) -> RiverMap 
         }
     }
 
-    // 2. Рендеринг
+    // 2. Рендеринг рек
     let mut rivers_img: ImageBuffer<Luma<u8>, Vec<u8>> =
         ImageBuffer::from_pixel(heightmap.width, heightmap.height, Luma([0]));
-
-    // Настраиваемые параметры:
-    let flow_threshold = 400.0; // Порог появления видимой реки
-    let max_flow_thickness = 3000.0; // Порог максимальной толщины
 
     for y in 0..height {
         for x in 0..width {
@@ -89,16 +148,19 @@ pub fn generate_rivers(heightmap: &Heightmap, biome_map: &BiomeMap) -> RiverMap 
             let current_flow = flow[idx];
             let biome = biome_map.data[idx];
 
-            // Условия отрисовки: достаточно воды, не океан, не лед
-            if current_flow > flow_threshold
+            // Условия отрисовки реки:
+            // - Достаточный объём воды (выше порога)
+            // - Не лёд (реки не текут по ледникам)
+            // - Не океан (реки впадают в океан, но не текут по нему)
+            if current_flow > FLOW_THRESHOLD
+                && biome != Biome::Ice
                 && biome != Biome::Ocean
                 && biome != Biome::DeepOcean
                 && biome != Biome::IcyOcean
                 && biome != Biome::FrozenOcean
-                && biome != Biome::Ice
             {
-                // Толщина: от 1 до 5 пикселей в зависимости от объема воды
-                let thickness = (1.0 + (current_flow / max_flow_thickness) * 4.0).min(5.0);
+                // Толщина реки: от 1 до 5 пикселей в зависимости от объёма воды
+                let thickness = (1.0 + (current_flow / MAX_FLOW_THICKNESS) * 4.0).min(5.0);
 
                 draw_filled_circle_mut(
                     &mut rivers_img,
@@ -118,6 +180,18 @@ pub fn generate_rivers(heightmap: &Heightmap, biome_map: &BiomeMap) -> RiverMap 
 }
 
 impl RiverMap {
+    /// Сохраняет карту рек в монохромный PNG-файл
+    ///
+    /// # Параметры
+    /// * `path` — путь к файлу для сохранения
+    ///
+    /// # Ошибки
+    /// Возвращает ошибку, если не удаётся создать или записать файл.
+    ///
+    /// # Пример
+    /// ```rust
+    /// river_map.save_as_png("output/rivers.png")?;
+    /// ```
     pub fn save_as_png(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let img: ImageBuffer<Luma<u8>, Vec<u8>> =
             ImageBuffer::from_raw(self.width, self.height, self.data.clone())

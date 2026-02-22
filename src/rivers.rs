@@ -18,8 +18,7 @@
 
 use crate::biome::{Biome, BiomeMap};
 use crate::heightmap::Heightmap;
-use image::{ImageBuffer, Luma};
-use imageproc::drawing::draw_filled_circle_mut;
+use image::{ImageBuffer, Rgb};
 
 /// Карта рек — распределение гидрографической сети по поверхности мира
 #[derive(Debug, Clone)]
@@ -28,8 +27,9 @@ pub struct RiverMap {
     pub width: u32,
     /// Высота карты в пикселях
     pub height: u32,
-    /// Данные рек: вектор значений 0..255, где 0 = суша, 255 = река
-    /// Размер вектора: `width × height`
+    /// Данные рек: вектор RGB-значений размером `width × height × 3`
+    /// Каждый пиксель — 3 байта (R, G, B)
+    /// (0, 0, 0) = суша, (0, 102, 204) = река
     pub data: Vec<u8>,
 }
 
@@ -50,8 +50,43 @@ const DIRECTIONS: [(i32, i32); 8] = [
 ];
 
 // Настраиваемые параметры визуализации
-const FLOW_THRESHOLD: f32 = 400.0; // Минимальный поток для видимой реки
-const MAX_FLOW_THICKNESS: f32 = 3000.0; // Поток, при котором река достигает максимальной толщины
+const FLOW_THRESHOLD: f32 = 100.0; // Минимальный поток для видимой реки (только значимые реки)
+const MIN_THICKNESS: f32 = 1.0; // Минимальная толщина реки в пикселях
+const MAX_THICKNESS: f32 = 5.0; // Максимальная толщина реки в пикселях
+
+// Цвета реки в формате RGB (градиент от светлого к тёмному)
+const RIVER_SOURCE_COLOR: [u8; 3] = [80, 150, 220]; // Светло-голубой для истоков
+const RIVER_MOUTH_COLOR: [u8; 3] = [0, 60, 140]; // Тёмно-синий для устьев
+
+/// Рисует заполненный круг на RGB изображении
+fn draw_rgb_circle(
+    data: &mut [u8],
+    width: usize,
+    height: usize,
+    center_x: i32,
+    center_y: i32,
+    radius: i32,
+    color: [u8; 3],
+) {
+    let r2 = radius * radius;
+    for dy in -radius..=radius {
+        let y = center_y + dy;
+        if y < 0 || y >= height as i32 {
+            continue;
+        }
+        let dx_max = ((r2 - dy * dy) as f32).sqrt() as i32;
+        for dx in -dx_max..=dx_max {
+            let x = center_x + dx;
+            if x < 0 || x >= width as i32 {
+                continue;
+            }
+            let idx = (y as usize * width + x as usize) * 3;
+            data[idx] = color[0];
+            data[idx + 1] = color[1];
+            data[idx + 2] = color[2];
+        }
+    }
+}
 
 /// Генерирует карту рек на основе карты высот и биомов
 ///
@@ -135,23 +170,53 @@ pub fn generate_rivers(heightmap: &Heightmap, biome_map: &BiomeMap) -> RiverMap 
             // В пустыне часть воды "испаряется" (теряем 50% потока)
             let loss = if biome == Biome::Desert { 0.5 } else { 1.0 };
             flow[target_idx] += flow[idx] * loss;
+        } else {
+            // Это точка стока (вода уходит в океан или озеро)
+            // Сохраняем поток для отметки устья реки
+            // Умножаем на 1.5 для выделения устьевых участков
+            flow[idx] *= 1.5;
         }
     }
 
-    // 2. Рендеринг рек
-    let mut rivers_img: ImageBuffer<Luma<u8>, Vec<u8>> =
-        ImageBuffer::from_pixel(heightmap.width, heightmap.height, Luma([0]));
+    // 2. Сглаживание потока (box blur) для непрерывности рек
+    let mut smoothed_flow = flow.clone();
+    for _ in 0..2 {
+        // 2 прохода сглаживания
+        for y in 0..height {
+            for x in 0..width {
+                let idx = y * width + x;
+                let mut sum = flow[idx];
+                let mut count = 1;
 
+                // Усредняем с 4 соседями
+                for &(dx, dy) in &[(0i32, -1), (0, 1), (-1, 0), (1, 0)] {
+                    let nx = x as i32 + dx;
+                    let ny = y as i32 + dy;
+                    if nx >= 0 && nx < width as i32 && ny >= 0 && ny < height as i32 {
+                        let nidx = ny as usize * width + nx as usize;
+                        sum += flow[nidx];
+                        count += 1;
+                    }
+                }
+                smoothed_flow[idx] = sum / count as f32;
+            }
+        }
+        flow = smoothed_flow.clone();
+    }
+
+    // Находим максимальный поток для нормализации толщины
+    let max_flow = flow.iter().cloned().fold(0.0f32, f32::max);
+
+    // 3. Рендеринг рек с градиентом цвета и толщины
+    let mut river_data = vec![0u8; width * height * 3];
+    
     for y in 0..height {
         for x in 0..width {
             let idx = y * width + x;
             let current_flow = flow[idx];
             let biome = biome_map.data[idx];
 
-            // Условия отрисовки реки:
-            // - Достаточный объём воды (выше порога)
-            // - Не лёд (реки не текут по ледникам)
-            // - Не океан (реки впадают в океан, но не текут по нему)
+            // Условия отрисовки реки
             if current_flow > FLOW_THRESHOLD
                 && biome != Biome::Ice
                 && biome != Biome::Ocean
@@ -159,15 +224,22 @@ pub fn generate_rivers(heightmap: &Heightmap, biome_map: &BiomeMap) -> RiverMap 
                 && biome != Biome::IcyOcean
                 && biome != Biome::FrozenOcean
             {
-                // Толщина реки: от 1 до 5 пикселей в зависимости от объёма воды
-                let thickness = (1.0 + (current_flow / MAX_FLOW_THICKNESS) * 4.0).min(5.0);
+                // Логарифмическая толщина: реки растут экспоненциально
+                // Используем ln(1 + flow) для избежания отрицательных значений
+                let log_flow = (1.0 + current_flow).ln();
+                let max_log_flow = (1.0 + max_flow).ln();
+                let log_thickness = log_flow / max_log_flow;
+                let thickness = MIN_THICKNESS + log_thickness * (MAX_THICKNESS - MIN_THICKNESS);
+                let radius = (thickness / 2.0).max(0.5).round() as i32;
 
-                draw_filled_circle_mut(
-                    &mut rivers_img,
-                    (x as i32, y as i32),
-                    thickness.round() as i32,
-                    Luma([255u8]),
-                );
+                // Градиент цвета: светлый в истоке, тёмный в устье
+                let t = log_thickness.clamp(0.0, 1.0);
+                let r = ((1.0 - t) * RIVER_SOURCE_COLOR[0] as f32 + t * RIVER_MOUTH_COLOR[0] as f32) as u8;
+                let g = ((1.0 - t) * RIVER_SOURCE_COLOR[1] as f32 + t * RIVER_MOUTH_COLOR[1] as f32) as u8;
+                let b = ((1.0 - t) * RIVER_SOURCE_COLOR[2] as f32 + t * RIVER_MOUTH_COLOR[2] as f32) as u8;
+
+                // Рисуем заполненный круг с переменной толщиной
+                draw_rgb_circle(&mut river_data, width, height, x as i32, y as i32, radius, [r, g, b]);
             }
         }
     }
@@ -175,12 +247,12 @@ pub fn generate_rivers(heightmap: &Heightmap, biome_map: &BiomeMap) -> RiverMap 
     RiverMap {
         width: heightmap.width,
         height: heightmap.height,
-        data: rivers_img.into_raw(),
+        data: river_data,
     }
 }
 
 impl RiverMap {
-    /// Сохраняет карту рек в монохромный PNG-файл
+    /// Сохраняет карту рек в цветной PNG-файл (синие реки на чёрном фоне)
     ///
     /// # Параметры
     /// * `path` — путь к файлу для сохранения
@@ -193,9 +265,9 @@ impl RiverMap {
     /// river_map.save_as_png("output/rivers.png")?;
     /// ```
     pub fn save_as_png(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let img: ImageBuffer<Luma<u8>, Vec<u8>> =
+        let img: ImageBuffer<Rgb<u8>, Vec<u8>> =
             ImageBuffer::from_raw(self.width, self.height, self.data.clone())
-                .ok_or("Failed to create image buffer")?;
+                .ok_or("Failed to create RGB image buffer")?;
         img.save(path)?;
         Ok(())
     }

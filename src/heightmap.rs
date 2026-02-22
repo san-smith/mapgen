@@ -460,11 +460,13 @@ pub fn generate_heightmap(
     world_type: WorldType,
     island_density: f32,
     terrain: &TerrainSettings,
+    continent_size: f32,
 ) -> Heightmap {
     let width_f = width as f32;
     let target_land_ratio = world_type.target_land_ratio();
 
     // Параметры для цилиндрической проекции (радиус цилиндра)
+    // Радиус выбирается так, чтобы карта шириной width соответствовала полной окружности
     let radius = width_f / (2.0 * std::f32::consts::PI);
 
     // === 1. Базовый шум (3D для бесшовности) ===
@@ -481,12 +483,22 @@ pub fn generate_heightmap(
     };
     noise.set_fractal_octaves(Some(octaves));
 
-    // Частота: крупные формы для континентов, мелкие для архипелагов
+    // Частота: определяет размер континентов в мировых координатах
+    // Вычисляем base_world_size из continent_size
+    // Формула: base_world_size = width × continent_size
+    // При continent_size=0.5 → base_world_size=1024 для карты 2048px
+    // При continent_size=0.25 → base_world_size=512 (умеренные континенты как Земля)
+    let base_world_size = (width_f * continent_size).round() as u32;
+    let base_world_size_f = base_world_size.max(64).min(width) as f32;
+    
     let base_frequency = match world_type {
         WorldType::Supercontinent | WorldType::Mediterranean => 0.002,
         _ => 0.005,
     };
-    noise.set_frequency(Some(base_frequency));
+    // Масштабируем частоту: на картах больше base_world_size уменьшаем частоту
+    let frequency_scale = base_world_size_f / width_f;
+    let adjusted_frequency = base_frequency * frequency_scale;
+    noise.set_frequency(Some(adjusted_frequency));
 
     // Генерация базовой карты высот
     #[cfg(feature = "parallel")]

@@ -228,6 +228,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         params.world_type,
         params.islands.island_density,
         &terrain,
+        params.continent_size,
     );
     println!("✅ Карта высот сгенерирована");
     println!("Сохраняем карту высот в PNG...");

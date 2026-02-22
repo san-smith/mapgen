@@ -274,6 +274,22 @@ pub struct WorldGenerationParams {
     #[serde(default = "default_sea_province_scale")]
     pub sea_province_scale: f32,
 
+    /// Размер континентов в диапазоне 0.0–1.0 (по умолчанию 0.25)
+    /// 
+    /// Определяет, насколько крупными будут континенты:
+    /// - `1.0` → один суперконтинент (Пангея)
+    /// - `0.5` → несколько крупных континентов
+    /// - `0.25` → умеренные континенты (как Земля)
+    /// - `0.1` → множество средних островов
+    /// - `0.01` → мелкие разрозненные острова (архипелаг)
+    /// 
+    /// Внутренне преобразуется в `base_world_size` по формуле:
+    /// `base_world_size = (width × continent_size).clamp(64, width)`
+    /// 
+    /// Поле опционально: если не указано, используется 0.25.
+    #[serde(default = "default_continent_size")]
+    pub continent_size: f32,
+
     /// Настройки рельефа и провинций
     #[serde(default)]
     pub terrain: TerrainSettings,
@@ -305,6 +321,18 @@ impl WorldGenerationParams {
         let params: Self = toml::from_str(&contents)?;
         Ok(params)
     }
+
+    /// Вычисляет базовый размер мира на основе continent_size и ширины карты
+    ///
+    /// # Формула
+    /// `base_world_size = (width × 2.0 × continent_size).clamp(64, width)`
+    ///
+    /// # Возвращает
+    /// Базовый размер в диапазоне [64, width] для использования в генерации высоты
+    pub fn base_world_size(&self) -> u32 {
+        let size = (self.width as f32 * 2.0 * self.continent_size).round() as u32;
+        size.clamp(64, self.width)
+    }
 }
 
 fn default_width() -> u32 {
@@ -319,6 +347,9 @@ fn default_num_regions() -> usize {
 fn default_sea_province_scale() -> f32 {
     2.5
 }
+fn default_continent_size() -> f32 {
+    0.25
+}
 
 impl Default for WorldGenerationParams {
     fn default() -> Self {
@@ -331,6 +362,7 @@ impl Default for WorldGenerationParams {
             islands: IslandSettings::default(),
             num_regions: 12,
             sea_province_scale: 2.5,
+            continent_size: 0.5,
             terrain: TerrainSettings::default(),
         }
     }

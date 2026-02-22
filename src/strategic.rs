@@ -195,6 +195,15 @@ pub enum StrategicPoint {
 ///     })
 ///     .collect();
 /// ```
+/// Находит стратегические точки мира
+///
+/// # Алгоритм
+/// Для каждой сухопутной провинции:
+/// 1. Сканируем все пиксели провинции
+/// 2. Проверяем наличие реки (пиксель реки в `river_map`)
+/// 3. Проверяем наличие горных биомов
+/// 4. Классифицируем точку по приоритету:
+///    - Устье (прибрежная + река) > Порт (прибрежная) > Перевал (горная)
 #[must_use]
 pub fn find_strategic_points(
     provinces: &[Province],
@@ -225,7 +234,13 @@ pub fn find_strategic_points(
                 }
 
                 // Проверка наличия реки
-                if river_map.data[idx] > 0 {
+                // data теперь RGB: каждый пиксель — 3 байта (R, G, B)
+                let pixel_idx = idx * 3;
+                let is_river = river_map.data[pixel_idx] > 0
+                    || river_map.data[pixel_idx + 1] > 0
+                    || river_map.data[pixel_idx + 2] > 0;
+
+                if is_river {
                     has_river = true;
                 }
 

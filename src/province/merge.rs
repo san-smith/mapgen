@@ -223,11 +223,28 @@ fn merge_one_small_province(
         large_prov.center.1 =
             (large_prov.center.1 * large_area + small_center.1 * small_area) / total_area;
 
-        // Взвешенное объединение биомов
-        for (biome, small_ratio) in &small_biomes {
-            let large_ratio = large_prov.biomes.entry(biome.clone()).or_insert(0.0);
-            *large_ratio = (*large_ratio * large_area + small_ratio * small_area) / total_area;
+        // Взвешенное объединение биомов: пересчитываем ВСЕ биомы
+        // Собираем все уникальные биомы из обеих провинций
+        let mut all_biomes: std::collections::HashMap<String, f32> = HashMap::new();
+        
+        // Добавляем биомы крупной провинции с учётом веса площади
+        for (biome, ratio) in &large_prov.biomes {
+            all_biomes.insert(biome.clone(), ratio * large_area);
         }
+        
+        // Добавляем/обновляем биомы мелкой провинции с учётом веса площади
+        for (biome, ratio) in &small_biomes {
+            let entry = all_biomes.entry(biome.clone()).or_insert(0.0);
+            *entry += ratio * small_area;
+        }
+        
+        // Нормализуем все биомы на общую площадь
+        for ratio in all_biomes.values_mut() {
+            *ratio /= total_area;
+        }
+        
+        // Заменяем HashMap биомов в крупной провинции
+        large_prov.biomes = all_biomes;
 
         // Обновление прибрежности (логическое ИЛИ)
         large_prov.coastal = large_prov.coastal || small_coastal;

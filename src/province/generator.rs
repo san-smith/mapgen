@@ -451,27 +451,23 @@ pub fn generate_provinces_from_seeds(
 
                     // Обновляем данные провинции для консистентности
                     let province = &mut provinces[best_pid as usize];
+                    let old_area = province.area as f32;
                     province.area += 1;
+                    let new_area = province.area as f32;
 
-                    // Обновляем биом (важно для точности состава)
+                    // Обновляем биом по формуле взвешенного среднего:
+                    // new_ratio = (old_ratio × old_area + 1) / new_area для добавленного биома
+                    // new_ratio = (old_ratio × old_area) / new_area для остальных биомов
                     let biome_name = format!("{:?}", biome_map.data[idx]);
-                    *province.biomes.entry(biome_name).or_insert(0.0) += 1.0;
+                    for ratio in province.biomes.values_mut() {
+                        *ratio = (*ratio * old_area) / new_area;
+                    }
+                    *province.biomes.entry(biome_name).or_insert(0.0) += 1.0 / new_area;
 
-                    // Обновляем центр масс
-                    province.center.0 += x as f32;
-                    province.center.1 += y as f32;
-                }
-            }
-        }
-
-        // Повторная нормализация после заполнения "дыр"
-        for province in &mut provinces {
-            if province.area > 0 {
-                province.center.0 /= province.area as f32;
-                province.center.1 /= province.area as f32;
-
-                for count in province.biomes.values_mut() {
-                    *count /= province.area as f32;
+                    // Обновляем центр масс по формуле взвешенного среднего:
+                    // new_center = (old_center × old_area + new_pixel) / new_area
+                    province.center.0 = (province.center.0 * old_area + x as f32) / new_area;
+                    province.center.1 = (province.center.1 * old_area + y as f32) / new_area;
                 }
             }
         }

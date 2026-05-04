@@ -54,6 +54,8 @@
 use crate::heightmap::Heightmap;
 use std::collections::VecDeque;
 
+const MAX_CALIBRATION_ITERS: usize = 10;
+
 /// Тип водной поверхности
 ///
 /// Определяет географическую и геймплейную принадлежность водного пикселя.
@@ -143,10 +145,39 @@ const DIRECTIONS: [(i32, i32); 4] = [(0, 1), (1, 0), (0, -1), (-1, 0)];
 /// }
 /// ```
 #[must_use]
-pub fn classify_water(heightmap: &Heightmap, sea_level: f32) -> Vec<WaterType> {
+pub fn classify_water(
+    heightmap: &Heightmap,
+    sea_level: f32,
+    target_water_ratio: Option<f32>,
+) -> Vec<WaterType> {
+    let target_water_ratio = target_water_ratio.unwrap_or(0.70);
     let width = heightmap.width as usize;
     let height = heightmap.height as usize;
     let total = width * height;
+
+    // Автоматическая калибровка уровня моря для целевого покрытия водой
+    let mut calibrated_sea_level = sea_level;
+    for _ in 0..MAX_CALIBRATION_ITERS {
+        let water_pixels = heightmap
+            .data
+            .iter()
+            .filter(|&&h| h < calibrated_sea_level)
+            .count();
+        let water_ratio = water_pixels as f32 / total as f32;
+        if (water_ratio - target_water_ratio).abs() < 0.05 {
+            break;
+        }
+        if water_ratio < target_water_ratio {
+            calibrated_sea_level = (calibrated_sea_level + 0.02).min(1.0);
+        } else {
+            calibrated_sea_level = (calibrated_sea_level - 0.02).max(0.0);
+        }
+    }
+    if (calibrated_sea_level - sea_level).abs() > 0.001 {
+        eprintln!(
+            "Автокалибровка уровня моря: {sea_level} → {calibrated_sea_level} (целевое покрытие воды: {target_water_ratio:.0}%)"
+        );
+    }
 
     let mut water_type = vec![WaterType::Land; total];
     let mut visited = vec![false; total];
@@ -160,7 +191,7 @@ pub fn classify_water(heightmap: &Heightmap, sea_level: f32) -> Vec<WaterType> {
     for x in 0..width {
         // Верхняя граница (северный полюс)
         let top_idx = x;
-        if heightmap.data[top_idx] < sea_level && !visited[top_idx] {
+        if heightmap.data[top_idx] < calibrated_sea_level && !visited[top_idx] {
             water_type[top_idx] = WaterType::Ocean;
             visited[top_idx] = true;
             queue.push_back((x as i32, 0));
@@ -168,7 +199,7 @@ pub fn classify_water(heightmap: &Heightmap, sea_level: f32) -> Vec<WaterType> {
 
         // Нижняя граница (южный полюс)
         let bottom_idx = (height - 1) * width + x;
-        if heightmap.data[bottom_idx] < sea_level && !visited[bottom_idx] {
+        if heightmap.data[bottom_idx] < calibrated_sea_level && !visited[bottom_idx] {
             water_type[bottom_idx] = WaterType::Ocean;
             visited[bottom_idx] = true;
             queue.push_back((x as i32, height as i32 - 1));

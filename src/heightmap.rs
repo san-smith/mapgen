@@ -457,6 +457,7 @@ pub fn generate_heightmap(
     seed: u64,
     width: u32,
     height: u32,
+    scale_factor: f32,
     world_type: WorldType,
     island_density: f32,
     terrain: &TerrainSettings,
@@ -475,16 +476,18 @@ pub fn generate_heightmap(
 
     // Адаптируем октавы под тип мира
     let octaves = match world_type {
-        WorldType::Supercontinent | WorldType::Mediterranean => 3,
-        WorldType::Archipelago => 4,
-        _ => 5,
+        WorldType::Supercontinent => (8.0 * scale_factor).round() as i32,
+        WorldType::Mediterranean => (9.0 * scale_factor).round() as i32,
+        WorldType::Archipelago => (4.0 * scale_factor).round() as i32,
+        _ => (5.0 * scale_factor).round() as i32,
     };
     noise.set_fractal_octaves(Some(octaves));
 
     // Частота: крупные формы для континентов, мелкие для архипелагов
     let base_frequency = match world_type {
-        WorldType::Supercontinent | WorldType::Mediterranean => 0.002,
-        _ => 0.005,
+        WorldType::Supercontinent => 0.002 / scale_factor,
+        WorldType::Mediterranean => 0.0025 / scale_factor,
+        _ => 0.005 / scale_factor,
     };
     noise.set_frequency(Some(base_frequency));
 

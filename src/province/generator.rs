@@ -53,6 +53,8 @@ use std::hash::{Hash, Hasher};
 /// - Упрощения определения прибрежности
 const DIRECTIONS: [(i32, i32); 4] = [(0, 1), (1, 0), (0, -1), (-1, 0)];
 
+const MIN_SEA_POINTS: usize = 10;
+
 /// Семя провинции — начальная точка для роста территории
 ///
 /// Семена размещаются в "благоприятных" локациях на основе географических критериев.
@@ -211,7 +213,6 @@ pub fn generate_province_seeds(
             selected.push(candidates[idx].clone());
         }
     }
-
     // Собираем точки океана для морских семян
     let mut sea_points = Vec::new();
     for y in 0..height {
@@ -222,8 +223,26 @@ pub fn generate_province_seeds(
         }
     }
 
+    // Валидация количества океанических точек
+    if sea_points.len() < MIN_SEA_POINTS {
+        eprintln!(
+            "Внимание: найдено только {} океанических точек (рекомендуется > {})",
+            sea_points.len(),
+            MIN_SEA_POINTS
+        );
+    }
+
+    // Логирование статистики генерации
+    println!(
+        "Генерация провинций: {} сухопутных семян, {} морских семян, {} океанических точек",
+        selected.iter().filter(|s| s.is_land).count(),
+        num_sea,
+        sea_points.len()
+    );
+
     // Случайно выбираем морские семена
-    for _ in 0..num_sea {
+    let actual_sea = num_sea.min(sea_points.len());
+    for _ in 0..actual_sea {
         if sea_points.is_empty() {
             break;
         }
@@ -235,6 +254,10 @@ pub fn generate_province_seeds(
             weight: 0.5,
             is_land: false,
         });
+    }
+
+    if actual_sea < num_sea {
+        eprintln!("Внимание: запрошено {num_sea} морских провинций, создано только {actual_sea}");
     }
 
     selected
@@ -340,6 +363,13 @@ pub fn generate_provinces_from_seeds(
 
         if idx < total {
             province_id_map[idx] = Some(pid as u32);
+            let color = hash_to_color(pid as u32);
+            // Validate color format (should always be valid, but check for safety)
+            if !color.starts_with('#') || color.len() != 7 {
+                eprintln!(
+                    "Провинция {pid} получила некорректный цвет: {color}. Используется fallback."
+                );
+            }
             provinces.push(Province {
                 id: pid as u32,
                 name: format!("Prov_{pid}"),

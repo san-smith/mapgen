@@ -103,6 +103,26 @@ impl WorldType {
             _ => TerrainSettings::default(),
         }
     }
+
+    /// Возвращает скорректированную плотность островов для данного типа мира.
+    ///
+    /// # Возвращает
+    /// - `EarthLike` → 0.05 (мало островов, акцент на континенты)
+    /// - `Supercontinent` → 0.05 (единичные острова у суперконтинента)
+    /// - `Mediterranean` → 0.07 (несколько островов в большом море)
+    /// - `Archipelago` → 0.20 (много островов и архипелагов)
+    /// - `IceAgeEarth` → 0.08 (ледниковые острова)
+    /// - `DesertMediterranean` → 0.06 (редкие оазисы-острова)
+    #[must_use]
+    pub fn adjusted_island_density(&self) -> f32 {
+        match self {
+            WorldType::EarthLike | WorldType::Supercontinent => 0.05,
+            WorldType::Mediterranean => 0.07,
+            WorldType::Archipelago => 0.20,
+            WorldType::IceAgeEarth => 0.08,
+            WorldType::DesertMediterranean => 0.06,
+        }
+    }
 }
 
 /// Глобальные климатические модификаторы

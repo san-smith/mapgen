@@ -67,7 +67,7 @@ const MAX_ITERATIONS: usize = 1000; // защита от бесконечног�
 /// Сливает все мелкие провинции с их крупнейшими соседями
 ///
 /// # Алгоритм
-/// 1. Итеративно ищет провинции с площадью < `MIN_AREA_THRESHOLD`
+/// 1. Итеративно ищет провинции с площадью < `MIN_AREA_THRESHOLD * scale_factor`
 /// 2. Для каждой мелкой провинции вызывает `merge_one_small_province`
 /// 3. Повторяет поиск до тех пор, пока мелкие провинции существуют
 ///    (слияние может создать новые мелкие провинции из-за изменения площадей соседей)
@@ -87,28 +87,39 @@ const MAX_ITERATIONS: usize = 1000; // защита от бесконечног�
 /// let mut provinces = vec![/* ... */];
 /// let graph = build_province_graph_with_map(&provinces, &pixel_to_id, width, height);
 ///
-/// merge_small_provinces(&mut provinces, &graph);
-/// // Теперь все провинции имеют площадь >= MIN_AREA_THRESHOLD
+/// merge_small_provinces(&mut provinces, &graph, scale_factor);
+/// // Теперь все провинции имеют площадь >= MIN_AREA_THRESHOLD * scale_factor
 /// ```
-pub fn merge_small_provinces(provinces: &mut Vec<Province>, graph: &UnGraph<u32, ()>) {
+pub fn merge_small_provinces(
+    provinces: &mut Vec<Province>,
+    graph: &UnGraph<u32, ()>,
+    scale_factor: f32,
+) {
     let mut merged_count = 0;
     let mut iterations = 0;
+
+    // Предподготовка карт поиска
+    let mut prov_map: HashMap<u32, usize> = provinces
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (p.id, i))
+        .collect();
+    let node_map: HashMap<u32, petgraph::graph::NodeIndex> =
+        graph.node_indices().map(|idx| (graph[idx], idx)).collect();
+    let min_area = (MIN_AREA_THRESHOLD as f32 * scale_factor).round() as usize;
 
     loop {
         iterations += 1;
         if iterations > MAX_ITERATIONS {
-            eprintln!("⚠️  Достигнут лимит итераций слияния ({MAX_ITERATIONS})");
+            eprintln!("Достигнут лимит итераций слияния ({MAX_ITERATIONS})");
             break;
         }
 
         // Находим первую мелкую провинцию
-        let small_province_id = provinces
-            .iter()
-            .find(|p| p.area < MIN_AREA_THRESHOLD)
-            .map(|p| p.id);
+        let small_province_id = provinces.iter().find(|p| p.area < min_area).map(|p| p.id);
 
         if let Some(small_id) = small_province_id {
-            if merge_one_small_province(provinces, graph, small_id) {
+            if merge_one_small_province(provinces, &mut prov_map, &node_map, graph, small_id) {
                 merged_count += 1;
             } else {
                 // Не удалось слить — пропускаем для избежания бесконечного цикла
@@ -121,11 +132,9 @@ pub fn merge_small_provinces(provinces: &mut Vec<Province>, graph: &UnGraph<u32,
     }
 
     if merged_count > 0 {
-        println!(
-            "🧹 Слито {merged_count} мелких провинций (площадь < {MIN_AREA_THRESHOLD} пикселей)."
-        );
+        println!("🧹 Слито {merged_count} мелких провинций (площадь < {min_area} пикселей).",);
     } else {
-        println!("✅ Все провинции имеют достаточный размер (≥ {MIN_AREA_THRESHOLD} пикселей).");
+        println!("✅ Все провинции имеют достаточный размер (≥ {min_area} пикселей).",);
     }
 }
 
@@ -168,30 +177,27 @@ pub fn merge_small_provinces(provinces: &mut Vec<Province>, graph: &UnGraph<u32,
 /// ```
 fn merge_one_small_province(
     provinces: &mut Vec<Province>,
+    prov_map: &mut HashMap<u32, usize>,
+    node_map: &HashMap<u32, petgraph::graph::NodeIndex>,
     graph: &UnGraph<u32, ()>,
     small_id: u32,
 ) -> bool {
-    // Находим мелкую провинцию и её индекс
-    let Some(small_idx) = provinces.iter().position(|p| p.id == small_id) else {
+    // Находим мелкую провинцию и её индекс через prov_map
+    let Some(&small_idx) = prov_map.get(&small_id) else {
         return false; // провинция не найдена
     };
 
+    // Проверяем, что индекс корректен
+    if small_idx >= provinces.len() {
+        return false;
+    }
+
     // Копируем необходимые данные мелкой провинции ДО получения изменяемой ссылки
-    // Это решает ошибку заимствования E0502
     let small_area = provinces[small_idx].area as f32;
     let small_center = provinces[small_idx].center;
     let small_biomes = provinces[small_idx].biomes.clone(); // HashMap копируется
     let small_coastal = provinces[small_idx].coastal;
     let is_land = provinces[small_idx].is_land;
-
-    // Строим маппинг для быстрого поиска
-    let prov_map: HashMap<u32, usize> = provinces
-        .iter()
-        .enumerate()
-        .map(|(i, p)| (p.id, i))
-        .collect();
-    let node_map: HashMap<u32, petgraph::graph::NodeIndex> =
-        graph.node_indices().map(|idx| (graph[idx], idx)).collect();
 
     // Находим узел мелкой провинции в графе
     let Some(&small_node_idx) = node_map.get(&small_id) else {
@@ -229,6 +235,21 @@ fn merge_one_small_province(
             *large_ratio = (*large_ratio * large_area + small_ratio * small_area) / total_area;
         }
 
+        // Нормализация биомов после слияния (гарантируем сумму ≈ 1.0)
+        let biome_sum: f32 = large_prov.biomes.values().sum();
+        if (biome_sum - 1.0).abs() > 1e-6 {
+            for ratio in large_prov.biomes.values_mut() {
+                *ratio /= biome_sum;
+            }
+        }
+
+        // Проверка на отрицательные значения (на всякий случай)
+        for &ratio in large_prov.biomes.values() {
+            if ratio < 0.0 {
+                eprintln!("Обнаружено отрицательное значение биома после слияния: {ratio}");
+            }
+        }
+
         // Обновление прибрежности (логическое ИЛИ)
         large_prov.coastal = large_prov.coastal || small_coastal;
 
@@ -236,9 +257,13 @@ fn merge_one_small_province(
         large_prov.area = total_area as usize;
 
         // Удаляем мелкую провинцию по индексу
-        // Важно: удаляем ПОСЛЕ обновления крупной провинции
-        // Индекс остаётся корректным, так как мы не изменяли вектор до этого момента
         provinces.remove(small_idx);
+
+        // Обновляем prov_map: удаляем запись мелкой провинции и корректируем индексы
+        prov_map.clear();
+        for (new_idx, prov) in provinces.iter().enumerate() {
+            prov_map.insert(prov.id, new_idx);
+        }
 
         true
     } else {

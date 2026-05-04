@@ -210,6 +210,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         params.seed, params.world_type, params.width, params.height
     );
 
+    // Масштабный коэффициент для определения минимального размера провинций
+    // и выбранных октавов шума для генерации карты высот.
+    let scale_factor = params.width as f32 / 512.0;
+
     // === ЭТАП 2: Генерация карты высот ===
     println!(
         "🌍 Генерация карты высот (размер: {}×{})...",
@@ -225,8 +229,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         params.seed,
         params.width,
         params.height,
+        scale_factor,
         params.world_type,
-        params.islands.island_density,
+        params.world_type.adjusted_island_density(),
         &terrain,
     );
     println!("✅ Карта высот сгенерирована");
@@ -266,7 +271,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // === ЭТАП 6: Классификация воды и генерация рек ===
     println!("💧 Классификация водных поверхностей...");
-    let water_type = classify_water(&heightmap, SEA_LEVEL);
+    let target_water_ratio = 1.0 - params.world_type.target_land_ratio();
+    let water_type = classify_water(&heightmap, SEA_LEVEL, Some(target_water_ratio));
     println!("✅ Вода классифицирована");
 
     println!("🌊 Генерация рек...");
@@ -341,10 +347,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ Провинции сгенерированы: {}", all_provinces.len());
 
     // === ЭТАП 9: Слияние мелких провинций ===
-    println!("🔨 Объединение мелких провинций (< 50 пикселей)...");
+    println!("🔨 Объединение мелких провинций...");
     let mut graph =
         build_province_graph_with_map(&all_provinces, &pixel_to_id, params.width, params.height);
-    merge_small_provinces(&mut all_provinces, &graph);
+    merge_small_provinces(&mut all_provinces, &graph, scale_factor);
     println!("✅ Мелкие провинции объединены");
 
     // Перестроение графа после слияния
